@@ -2521,3 +2521,146 @@ t = t.replace(old, new, 1)
 anim.write_text(t, encoding="utf-8")
 
 print("Moved S24 battery UI below fingerprint and out of camera SurfaceView")
+
+
+# 24) S24 partial AOD mask: keep Samsung fingerprint visible while our battery
+# stays below it. Use a transparent full-screen container + black upper mask.
+sprite = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/SpritePlayer.java")
+t = sprite.read_text(encoding="utf-8")
+
+needle = '''    private android.widget.LinearLayout batteryContainer;
+    private android.widget.TextView batteryText;
+    private android.widget.ProgressBar batteryProgress;
+    private final float dpToPx;'''
+replacement = '''    private android.view.View aodMaskView;
+    private android.widget.LinearLayout batteryContainer;
+    private android.widget.TextView batteryText;
+    private android.widget.ProgressBar batteryProgress;
+    private final float dpToPx;'''
+if needle not in t:
+    raise SystemExit("AOD mask field anchor not found")
+t = t.replace(needle, replacement, 1)
+
+needle = '''        surfaceView.setLayoutParams(new RelativeLayout.LayoutParams(params));
+        addView(surfaceView);
+
+        batteryContainer = new android.widget.LinearLayout(context);'''
+replacement = '''        surfaceView.setLayoutParams(new RelativeLayout.LayoutParams(params));
+        addView(surfaceView);
+
+        // The parent/window remains transparent. This child masks only the upper
+        // AOD area so One UI can still draw the fingerprint in the lower region.
+        aodMaskView = new android.view.View(context);
+        aodMaskView.setBackgroundColor(Color.BLACK);
+        aodMaskView.setVisibility(View.GONE);
+        RelativeLayout.LayoutParams aodMaskParams =
+                new RelativeLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        1
+                );
+        aodMaskParams.addRule(RelativeLayout.ALIGN_PARENT_TOP);
+        aodMaskView.setLayoutParams(aodMaskParams);
+        addView(aodMaskView);
+
+        batteryContainer = new android.widget.LinearLayout(context);'''
+if needle not in t:
+    raise SystemExit("AOD mask constructor anchor not found")
+t = t.replace(needle, replacement, 1)
+
+needle = '''    public void setShowBatteryStatus(boolean value) {'''
+method = '''    public void setAODMask(boolean value, int heightPx) {
+        synchronized (sync) {
+            handlerMain.post(() -> {
+                if (aodMaskView == null) return;
+                if (!value || heightPx <= 0) {
+                    aodMaskView.setVisibility(View.GONE);
+                    return;
+                }
+
+                RelativeLayout.LayoutParams params =
+                        (RelativeLayout.LayoutParams)aodMaskView.getLayoutParams();
+                params.width = ViewGroup.LayoutParams.MATCH_PARENT;
+                params.height = heightPx;
+                params.leftMargin = 0;
+                params.topMargin = 0;
+                aodMaskView.setLayoutParams(params);
+                aodMaskView.setVisibility(View.VISIBLE);
+                aodMaskView.bringToFront();
+
+                // Keep the notification renderer and battery above the black mask.
+                surfaceView.bringToFront();
+                if (batteryContainer != null && batteryContainer.getVisibility() == View.VISIBLE) {
+                    batteryContainer.bringToFront();
+                }
+            });
+        }
+    }
+
+''' + needle
+if needle not in t:
+    raise SystemExit("AOD mask setter anchor not found")
+t = t.replace(needle, method, 1)
+
+sprite.write_text(t, encoding="utf-8")
+
+anim = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/NotificationAnimation.java")
+t = anim.read_text(encoding="utf-8")
+
+# Replace the full-screen-only mask introduced in pass 23 with a full transparent
+# window and a separate black mask whose height matches the original partial AOD
+# behavior. This preserves the fingerprint region.
+old = '''                    // S24 clone: use a full-screen mask. One UI's fingerprint
+                    // remains visible above the accessibility overlay, while the
+                    // Holey Light battery widget is positioned independently below it.
+                    update.set(0, 0, resolution.x, resolution.y);
+                    spritePlayer.setBackgroundColor(Settings.DEBUG_OVERLAY ? 0x40FF0000 : Color.BLACK);'''
+new = '''                    int maskBottom = resolution.y;
+                    if (!hideAODFully) {
+                        // Restore Chainfire's partial-AOD geometry: mask the clock/content
+                        // area but leave the lower Samsung fingerprint region exposed.
+                        maskBottom = (int)(resolution.y * 0.75f);
+                        if (Build.VERSION.SDK_INT >= 30) {
+                            if (tspOverlayBottom > 0) {
+                                maskBottom = Math.max(tspRect.bottom, tspOverlayBottom);
+                            } else if (tspRect.bottom > 0) {
+                                maskBottom = tspRect.bottom;
+                            }
+                        }
+                        // Never let Samsung's dynamic TSP bounds swallow the fingerprint
+                        // region completely on the S24.
+                        maskBottom = Math.min(maskBottom, (int)(resolution.y * 0.78f));
+                    }
+
+                    // Full-screen transparent window; black only the requested upper area.
+                    update.set(0, 0, resolution.x, resolution.y);
+                    spritePlayer.setBackgroundColor(Color.TRANSPARENT);
+                    spritePlayer.setAODMask(true, maskBottom);'''
+if old not in t:
+    raise SystemExit("full-screen AOD mask block not found")
+t = t.replace(old, new, 1)
+
+old = '''                } else {
+                    update.set((int)left, (int)top, (int)(left + width), (int)(top + height));
+                    spritePlayer.setBackgroundColor(Color.TRANSPARENT);
+                }'''
+new = '''                } else {
+                    update.set((int)left, (int)top, (int)(left + width), (int)(top + height));
+                    spritePlayer.setBackgroundColor(Color.TRANSPARENT);
+                    spritePlayer.setAODMask(false, 0);
+                }'''
+if old not in t:
+    raise SystemExit("AOD mask disable anchor not found")
+t = t.replace(old, new, 1)
+
+# The black background is now provided by aodMaskView, not by the camera SurfaceView.
+old = '''                spritePlayer.setDrawBackground(hideAOD);
+                spritePlayer.setShowBatteryStatus(hideAOD && !hideAODFully);'''
+new = '''                spritePlayer.setDrawBackground(false);
+                spritePlayer.setShowBatteryStatus(hideAOD && !hideAODFully);'''
+if old not in t:
+    raise SystemExit("draw background handoff anchor not found")
+t = t.replace(old, new, 1)
+
+anim.write_text(t, encoding="utf-8")
+
+print("Restored visible Samsung fingerprint with dedicated partial AOD mask")
