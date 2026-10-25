@@ -1805,3 +1805,419 @@ if start != -1:
 frag.write_text(t, encoding="utf-8")
 
 print("Added procedural effect controls and removed AOD Helper from normal UI")
+
+
+# 21) Color Chase / Arc Sweep / Spark + presets + per-app effects.
+
+# --- New procedural modes and rendering ---
+sprite = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/SpritePlayer.java")
+t = sprite.read_text(encoding="utf-8")
+
+old = "public enum Mode { SWIRL, SWIRL_SLOW, SWIRL_FAST, COMET, DOUBLE_COMET, BREATH, HEARTBEAT, RADAR, NEON, ORBIT, RIPPLE, BLINK, BLINK_SOFT, SINGLE, TSP, TSP_HIDE }"
+new = "public enum Mode { SWIRL, SWIRL_SLOW, SWIRL_FAST, COMET, DOUBLE_COMET, BREATH, HEARTBEAT, RADAR, NEON, COLOR_CHASE, ARC_SWEEP, SPARK, ORBIT, RIPPLE, BLINK, BLINK_SOFT, SINGLE, TSP, TSP_HIDE }"
+if old not in t:
+    raise SystemExit("mode enum for extra effects not found")
+t = t.replace(old, new, 1)
+
+old = '''                (mode == Mode.NEON) ||
+                (mode == Mode.ORBIT) ||
+                (mode == Mode.RIPPLE);'''
+new = '''                (mode == Mode.NEON) ||
+                (mode == Mode.COLOR_CHASE) ||
+                (mode == Mode.ARC_SWEEP) ||
+                (mode == Mode.SPARK) ||
+                (mode == Mode.ORBIT) ||
+                (mode == Mode.RIPPLE);'''
+if old not in t:
+    raise SystemExit("procedural mode helper extension anchor not found")
+t = t.replace(old, new, 1)
+
+old = '''        } else if (drawMode == Mode.RIPPLE) {
+            float cycle = 2100f / safeSpeed;
+            float part = (diff % (long)Math.max(1f, cycle)) / cycle;
+            int c = activeColors[0];
+            paintProcedural.setStyle(Paint.Style.STROKE);
+            int waves = effectRippleWaves;
+            for (int i = 0; i < waves; i++) {
+                float p = (part + (i / (float)waves)) % 1f;
+                float rr = radius * (0.63f + (0.37f * p));
+                int alpha = Math.max(10, Math.min(255, Math.round(210f * (1f - p) * effectIntensity)));
+                paintProcedural.setStrokeWidth((1.2f + (2.5f * (1f - p))) * effectIntensity * dpToPx);
+                paintProcedural.setColor((c & 0x00FFFFFF) | (alpha << 24));
+                canvas.drawCircle(cx, cy, rr, paintProcedural);
+            }
+        }
+    }'''
+
+new = '''        } else if (drawMode == Mode.RIPPLE) {
+            float cycle = 2100f / safeSpeed;
+            float part = (diff % (long)Math.max(1f, cycle)) / cycle;
+            int c = activeColors[0];
+            paintProcedural.setStyle(Paint.Style.STROKE);
+            int waves = effectRippleWaves;
+            for (int i = 0; i < waves; i++) {
+                float p = (part + (i / (float)waves)) % 1f;
+                float rr = radius * (0.63f + (0.37f * p));
+                int alpha = Math.max(10, Math.min(255, Math.round(210f * (1f - p) * effectIntensity)));
+                paintProcedural.setStrokeWidth((1.2f + (2.5f * (1f - p))) * effectIntensity * dpToPx);
+                paintProcedural.setColor((c & 0x00FFFFFF) | (alpha << 24));
+                canvas.drawCircle(cx, cy, rr, paintProcedural);
+            }
+        } else if (drawMode == Mode.COLOR_CHASE) {
+            float cycle = 2600f / safeSpeed;
+            float phase = ((diff % (long)Math.max(1f, cycle)) / cycle) * 360f * effectDirection;
+            paintProcedural.setStyle(Paint.Style.STROKE);
+            paintProcedural.setStrokeWidth(3.0f * effectIntensity * dpToPx);
+            int segments = Math.max(8, activeColors.length * 4);
+            for (int i = 0; i < segments; i++) {
+                int c = activeColors[i % activeColors.length];
+                if (activeColors.length == 1) {
+                    float[] hsv = new float[3];
+                    Color.colorToHSV(c, hsv);
+                    hsv[0] = (hsv[0] + (i * (360f / segments))) % 360f;
+                    c = Color.HSVToColor(hsv);
+                }
+                int alpha = Math.min(255, Math.round(230f * effectIntensity));
+                paintProcedural.setColor((c & 0x00FFFFFF) | (alpha << 24));
+                float start = phase + (i * (360f / segments));
+                canvas.drawArc(cx - radius, cy - radius, cx + radius, cy + radius,
+                        start, (260f / segments), false, paintProcedural);
+            }
+        } else if (drawMode == Mode.ARC_SWEEP) {
+            float cycle = 2300f / safeSpeed;
+            float phase = ((diff % (long)Math.max(1f, cycle)) / cycle) * 360f * effectDirection;
+            int c = activeColors[0];
+            int steps = Math.max(5, Math.min(20, Math.round(10f * effectTrail)));
+            paintProcedural.setStyle(Paint.Style.STROKE);
+            for (int i = 0; i < steps; i++) {
+                float p = i / (float)steps;
+                int alpha = Math.max(16, Math.min(255, Math.round(255f * (1f - p) * effectIntensity)));
+                paintProcedural.setStrokeWidth((4.0f - (2.0f * p)) * effectIntensity * dpToPx);
+                paintProcedural.setColor((c & 0x00FFFFFF) | (alpha << 24));
+                float dir = effectDirection < 0 ? -1f : 1f;
+                canvas.drawArc(cx - radius, cy - radius, cx + radius, cy + radius,
+                        phase - (dir * i * 7f), dir * (40f + (80f * effectTrail / steps)), false, paintProcedural);
+            }
+        } else if (drawMode == Mode.SPARK) {
+            float cycle = 1750f / safeSpeed;
+            float phase = ((diff % (long)Math.max(1f, cycle)) / cycle) * 360f * effectDirection;
+            paintProcedural.setStyle(Paint.Style.FILL);
+            int sparks = Math.max(8, Math.round(12f * effectTrail));
+            for (int i = 0; i < sparks; i++) {
+                float baseAngle = phase + (i * (360f / sparks));
+                float wobble = 10f * (float)Math.sin((diff / 130.0) + (i * 1.73));
+                float angle = baseAngle + wobble;
+                double rad = Math.toRadians(angle);
+                float radial = radius - ((i % 3) * 1.8f * dpToPx);
+                float pulse = 0.45f + 0.55f * (float)Math.abs(Math.sin((diff / 170.0) + (i * 0.9)));
+                int c = activeColors[i % activeColors.length];
+                int alpha = Math.min(255, Math.round((80f + 175f * pulse) * effectIntensity));
+                paintProcedural.setColor((c & 0x00FFFFFF) | (alpha << 24));
+                float rr = (1.2f + (2.4f * pulse)) * effectIntensity * dpToPx;
+                canvas.drawCircle(
+                        cx + ((float)Math.cos(rad) * radial),
+                        cy + ((float)Math.sin(rad) * radial),
+                        rr, paintProcedural
+                );
+            }
+        }
+    }'''
+
+if old not in t:
+    raise SystemExit("renderer extension anchor not found")
+t = t.replace(old, new, 1)
+sprite.write_text(t, encoding="utf-8")
+
+# --- Register titles / styles ---
+settings_file = Path("upstream/app/src/main/java/eu/chainfire/holeylight/misc/Settings.java")
+t = settings_file.read_text(encoding="utf-8")
+
+old = '''            new AnimationStyle("neon", SpritePlayer.Mode.NEON, R.string.animation_style_neon_title, R.string.animation_style_location_camera, 4.6f),
+            new AnimationStyle("orbit", SpritePlayer.Mode.ORBIT, R.string.animation_style_orbit_title, R.string.animation_style_location_camera, 4.0f),'''
+new = '''            new AnimationStyle("neon", SpritePlayer.Mode.NEON, R.string.animation_style_neon_title, R.string.animation_style_location_camera, 4.6f),
+            new AnimationStyle("color_chase", SpritePlayer.Mode.COLOR_CHASE, R.string.animation_style_color_chase_title, R.string.animation_style_location_camera, 4.5f),
+            new AnimationStyle("arc_sweep", SpritePlayer.Mode.ARC_SWEEP, R.string.animation_style_arc_sweep_title, R.string.animation_style_location_camera, 4.2f),
+            new AnimationStyle("spark", SpritePlayer.Mode.SPARK, R.string.animation_style_spark_title, R.string.animation_style_location_camera, 4.4f),
+            new AnimationStyle("orbit", SpritePlayer.Mode.ORBIT, R.string.animation_style_orbit_title, R.string.animation_style_location_camera, 4.0f),'''
+if old not in t:
+    raise SystemExit("animation style extension anchor not found")
+t = t.replace(old, new, 1)
+
+# per-app effect setting helpers
+needle = '''    private static final String EFFECT_RIPPLE_WAVES = "effect_ripple_waves";'''
+replacement = '''    private static final String EFFECT_RIPPLE_WAVES = "effect_ripple_waves";
+    private static final String EFFECT_PACKAGE_PREFIX = "effect_package:";'''
+if needle not in t:
+    raise SystemExit("package effect constant anchor not found")
+t = t.replace(needle, replacement, 1)
+
+needle = '''    public void setEffectRippleWaves(int value) {
+        put(EFFECT_RIPPLE_WAVES, Math.min(Math.max(value, 2), 6), true);
+    }'''
+replacement = '''    public void setEffectRippleWaves(int value) {
+        put(EFFECT_RIPPLE_WAVES, Math.min(Math.max(value, 2), 6), true);
+    }
+
+    public SpritePlayer.Mode getEffectForPackage(String packageName) {
+        if (packageName == null) return null;
+        String styleName = prefs.getString(EFFECT_PACKAGE_PREFIX + packageName, null);
+        if (styleName == null) return null;
+        AnimationStyle style = getAnimationStyle(styleName);
+        return style == null ? null : style.mode;
+    }
+
+    public void setEffectForPackage(String packageName, SpritePlayer.Mode mode) {
+        if (packageName == null) return;
+        edit();
+        try {
+            String key = EFFECT_PACKAGE_PREFIX + packageName;
+            if (mode == null) {
+                editor.remove(key);
+            } else {
+                AnimationStyle style = getAnimationStyle(mode);
+                if (style != null) editor.putString(key, style.name);
+            }
+        } finally {
+            save(true);
+        }
+    }'''
+if needle not in t:
+    raise SystemExit("package effect helpers anchor not found")
+t = t.replace(needle, replacement, 1)
+settings_file.write_text(t, encoding="utf-8")
+
+for rel, strings in [
+    ("upstream/app/src/main/res/values/strings.xml", [
+        ("animation_style_color_chase_title", "Color chase"),
+        ("animation_style_arc_sweep_title", "Arc sweep"),
+        ("animation_style_spark_title", "Spark"),
+    ]),
+    ("upstream/app/src/main/res/values-it/strings.xml", [
+        ("animation_style_color_chase_title", "Color chase"),
+        ("animation_style_arc_sweep_title", "Arc sweep"),
+        ("animation_style_spark_title", "Spark"),
+    ]),
+]:
+    p = Path(rel)
+    txt = p.read_text(encoding="utf-8")
+    if "animation_style_color_chase_title" not in txt:
+        block = "\n" + "\n".join([f'    <string name="{k}">{v}</string>' for k, v in strings]) + "\n"
+        txt = txt.replace("</resources>", block + "</resources>")
+        p.write_text(txt, encoding="utf-8")
+
+# --- Pass notification package to Overlay, then apply per-app effect if one app is active ---
+listener = Path("upstream/app/src/main/java/eu/chainfire/holeylight/service/NotificationListenerService.java")
+t = listener.read_text(encoding="utf-8")
+
+old = '''            int[] currentColors = new int[currentNotifications.size()];
+            Drawable[] currentIcons = new Drawable[currentNotifications.size()];
+            for (int i = 0; i < currentNotifications.size(); i++) {
+                currentColors[i] = currentNotifications.get(i).getColor();
+                currentIcons[i] = currentNotifications.get(i).getIconDrawable(this);
+            }
+            if (overlay != null) {
+                overlay.show(currentColors, currentIcons, forceRefresh);'''
+new = '''            int[] currentColors = new int[currentNotifications.size()];
+            Drawable[] currentIcons = new Drawable[currentNotifications.size()];
+            String[] currentPackages = new String[currentNotifications.size()];
+            for (int i = 0; i < currentNotifications.size(); i++) {
+                currentColors[i] = currentNotifications.get(i).getColor();
+                currentIcons[i] = currentNotifications.get(i).getIconDrawable(this);
+                currentPackages[i] = currentNotifications.get(i).getPackageName();
+            }
+            if (overlay != null) {
+                overlay.show(currentColors, currentIcons, currentPackages, forceRefresh);'''
+if old not in t:
+    raise SystemExit("listener package forwarding anchor not found")
+t = t.replace(old, new, 1)
+listener.write_text(t, encoding="utf-8")
+
+overlay = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/Overlay.java")
+t = overlay.read_text(encoding="utf-8")
+
+# add packages field near colors/icons
+needle = '''    private int[] colors = new int[0];
+    private Drawable[] icons = new Drawable[0];'''
+replacement = '''    private int[] colors = new int[0];
+    private Drawable[] icons = new Drawable[0];
+    private String[] packages = new String[0];'''
+if needle not in t:
+    raise SystemExit("overlay packages field anchor not found")
+t = t.replace(needle, replacement, 1)
+
+# override renderMode when exactly one unique package is active
+needle = '''        SpritePlayer.Mode renderMode = settings.getAnimationMode(mode);
+        SpritePlayer.Mode renderModeOff = settings.getAnimationMode(modeOff);'''
+replacement = '''        SpritePlayer.Mode renderMode = settings.getAnimationMode(mode);
+        SpritePlayer.Mode renderModeOff = settings.getAnimationMode(modeOff);
+
+        String singlePackage = null;
+        if ((packages != null) && (packages.length > 0)) {
+            singlePackage = packages[0];
+            for (int i = 1; i < packages.length; i++) {
+                if ((singlePackage == null) || !singlePackage.equals(packages[i])) {
+                    singlePackage = null;
+                    break;
+                }
+            }
+        }
+        if (singlePackage != null) {
+            SpritePlayer.Mode packageMode = settings.getEffectForPackage(singlePackage);
+            if (packageMode != null) {
+                renderMode = packageMode;
+                renderModeOff = packageMode;
+            }
+        }'''
+if needle not in t:
+    raise SystemExit("overlay per-package mode anchor not found")
+t = t.replace(needle, replacement, 1)
+
+old = '''    public void show(int[] colors, Drawable[] icons, boolean forceRefresh) {
+        if (terminated) return;
+        handler.removeCallbacks(evaluateLoop);
+        this.colors = colors;
+        this.icons = icons;'''
+new = '''    public void show(int[] colors, Drawable[] icons, boolean forceRefresh) {
+        show(colors, icons, new String[0], forceRefresh);
+    }
+
+    public void show(int[] colors, Drawable[] icons, String[] packages, boolean forceRefresh) {
+        if (terminated) return;
+        handler.removeCallbacks(evaluateLoop);
+        this.colors = colors;
+        this.icons = icons;
+        this.packages = packages == null ? new String[0] : packages;'''
+if old not in t:
+    raise SystemExit("overlay show overload anchor not found")
+t = t.replace(old, new, 1)
+overlay.write_text(t, encoding="utf-8")
+
+# --- UI: expose new effects, presets, per-app picker ---
+frag = Path("upstream/app/src/main/java/eu/chainfire/holeylight/ui/SettingsFragment.java")
+t = frag.read_text(encoding="utf-8")
+
+old = '''                    SpritePlayer.Mode.RADAR,
+                    SpritePlayer.Mode.NEON,
+                    SpritePlayer.Mode.ORBIT,'''
+new = '''                    SpritePlayer.Mode.RADAR,
+                    SpritePlayer.Mode.NEON,
+                    SpritePlayer.Mode.COLOR_CHASE,
+                    SpritePlayer.Mode.ARC_SWEEP,
+                    SpritePlayer.Mode.SPARK,
+                    SpritePlayer.Mode.ORBIT,'''
+if t.count(old) < 2:
+    raise SystemExit("effect picker new modes anchors not found")
+t = t.replace(old, new, 2)
+
+# insert presets + per-app before Direction effects
+anchor = '''        Preference prefEffectDirection = pref(catAnimation, 0, 0, null, true, null);'''
+if anchor not in t:
+    raise SystemExit("preset/per-app UI anchor not found")
+
+block = '''        Preference prefEffectPreset = pref(catAnimation, 0, 0, null, true, null);
+        prefEffectPreset.setTitle("Preset effetti");
+        prefEffectPreset.setSummary("Personalizzato");
+        prefEffectPreset.setOnPreferenceClickListener(preference -> {
+            final CharSequence[] labels = new CharSequence[] { "Discreto", "Normale", "Wow" };
+            (new AlertDialog.Builder(getContext()))
+                    .setTitle("Preset effetti")
+                    .setItems(labels, (dialog, which) -> {
+                        if (which == 0) {
+                            settings.setEffectSpeed(0.75f);
+                            settings.setEffectIntensity(0.70f);
+                            settings.setEffectTrail(0.65f);
+                            settings.setEffectOrbitDots(3);
+                            settings.setEffectRippleWaves(2);
+                        } else if (which == 1) {
+                            settings.setEffectSpeed(1.00f);
+                            settings.setEffectIntensity(1.00f);
+                            settings.setEffectTrail(1.00f);
+                            settings.setEffectOrbitDots(4);
+                            settings.setEffectRippleWaves(3);
+                        } else {
+                            settings.setEffectSpeed(1.50f);
+                            settings.setEffectIntensity(1.40f);
+                            settings.setEffectTrail(1.70f);
+                            settings.setEffectOrbitDots(6);
+                            settings.setEffectRippleWaves(5);
+                        }
+                        preference.setSummary(labels[which]);
+                        previewCurrentEffect.run();
+                    })
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
+            return true;
+        });
+
+        Preference prefPerAppEffects = pref(catAnimation, 0, 0, null, true, null);
+        prefPerAppEffects.setTitle("Effetti per app");
+        prefPerAppEffects.setSummary("Scegli un effetto diverso per singole app");
+        prefPerAppEffects.setOnPreferenceClickListener(preference -> {
+            android.content.pm.PackageManager pm = getContext().getPackageManager();
+            java.util.List<android.content.pm.ApplicationInfo> apps = pm.getInstalledApplications(0);
+            java.util.ArrayList<android.content.pm.ApplicationInfo> shown = new java.util.ArrayList<>();
+            for (android.content.pm.ApplicationInfo app : apps) {
+                if (pm.getLaunchIntentForPackage(app.packageName) != null) {
+                    shown.add(app);
+                }
+            }
+            java.util.Collections.sort(shown, (a, b) ->
+                    pm.getApplicationLabel(a).toString().compareToIgnoreCase(pm.getApplicationLabel(b).toString()));
+
+            CharSequence[] labels = new CharSequence[shown.size()];
+            for (int i = 0; i < shown.size(); i++) {
+                android.content.pm.ApplicationInfo ai = shown.get(i);
+                SpritePlayer.Mode saved = settings.getEffectForPackage(ai.packageName);
+                String suffix = saved == null ? "" : " — " + getString(settings.getAnimationStyle(saved).title);
+                labels[i] = pm.getApplicationLabel(ai) + suffix;
+            }
+
+            (new AlertDialog.Builder(getContext()))
+                    .setTitle("Effetti per app")
+                    .setItems(labels, (dialog, which) -> {
+                        android.content.pm.ApplicationInfo ai = shown.get(which);
+                        final SpritePlayer.Mode[] modes = new SpritePlayer.Mode[] {
+                                null,
+                                SpritePlayer.Mode.SWIRL,
+                                SpritePlayer.Mode.COMET,
+                                SpritePlayer.Mode.DOUBLE_COMET,
+                                SpritePlayer.Mode.BREATH,
+                                SpritePlayer.Mode.HEARTBEAT,
+                                SpritePlayer.Mode.RADAR,
+                                SpritePlayer.Mode.NEON,
+                                SpritePlayer.Mode.COLOR_CHASE,
+                                SpritePlayer.Mode.ARC_SWEEP,
+                                SpritePlayer.Mode.SPARK,
+                                SpritePlayer.Mode.ORBIT,
+                                SpritePlayer.Mode.RIPPLE,
+                                SpritePlayer.Mode.BLINK_SOFT,
+                                SpritePlayer.Mode.BLINK,
+                                SpritePlayer.Mode.SINGLE
+                        };
+                        CharSequence[] effectLabels = new CharSequence[modes.length];
+                        effectLabels[0] = "Usa effetto globale";
+                        for (int j = 1; j < modes.length; j++) {
+                            effectLabels[j] = getString(settings.getAnimationStyle(modes[j]).title);
+                        }
+                        (new AlertDialog.Builder(getContext()))
+                                .setTitle(pm.getApplicationLabel(ai))
+                                .setItems(effectLabels, (dialog2, selected) -> {
+                                    settings.setEffectForPackage(ai.packageName, modes[selected]);
+                                    if (modes[selected] != null) {
+                                        eu.chainfire.holeylight.animation.Overlay overlay = eu.chainfire.holeylight.animation.Overlay.getInstance();
+                                        if (overlay != null) overlay.preview(modes[selected]);
+                                    }
+                                })
+                                .setNegativeButton(android.R.string.cancel, null)
+                                .show();
+                    })
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
+            return true;
+        });
+
+''' + anchor
+t = t.replace(anchor, block, 1)
+frag.write_text(t, encoding="utf-8")
+
+print("Added ColorChase/ArcSweep/Spark, presets and per-app effects")
