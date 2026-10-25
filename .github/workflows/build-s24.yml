@@ -81,19 +81,38 @@ jobs:
           java -version
           ./gradlew --version
 
-      - name: Build S24 debug APK
+      - name: Sign release with disposable debug key
         working-directory: upstream
-        run: ./gradlew :app:assembleDebug --stacktrace --no-daemon
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("app/build.gradle")
+          s = p.read_text()
+          old = """        release {
+              minifyEnabled true"""
+          new = """        release {
+              signingConfig signingConfigs.debug
+              minifyEnabled true"""
+          if old not in s:
+              raise SystemExit("release buildType insertion point not found")
+          p.write_text(s.replace(old, new, 1))
+          PY
+
+      - name: Build S24 release APK
+        working-directory: upstream
+        run: ./gradlew :app:assembleRelease --stacktrace --no-daemon
 
       - name: Collect APK
         run: |
           mkdir -p out
-          cp upstream/app/build/outputs/apk/debug/app-debug.apk out/HoleyLight-S24-FIX.apk
+          APK="$(find upstream/app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -type f | head -n 1)"
+          test -n "$APK"
+          cp "$APK" out/HoleyLight-S24-FIX.apk
           sha256sum out/HoleyLight-S24-FIX.apk | tee out/SHA256.txt
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: HoleyLight-ORIGINAL-CLEAN
+          name: HoleyLight-S24-FIX
           path: out/*
           if-no-files-found: error
