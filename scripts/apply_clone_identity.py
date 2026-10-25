@@ -2950,3 +2950,95 @@ t = t.replace(old, new, 1)
 overlay.write_text(t, encoding="utf-8")
 
 print("Restored fingerprint-safe partial AOD and moved battery to independent window")
+
+
+# 26) Recovery build: restore the last known fingerprint-safe partial AOD
+# behavior. Remove all custom bottom battery windows. Keep ghost-pixel and
+# sticky-AOD fixes from pass 22.
+
+# --- Overlay: never create/show the custom battery window.
+overlay = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/Overlay.java")
+t = overlay.read_text(encoding="utf-8")
+
+old = '''        boolean showS24Battery =
+                settings.isHideAOD() &&
+                !settings.isHideAODFully() &&
+                !on;
+        if (showS24Battery) {
+            showBatteryOverlay(context);
+        } else {
+            hideBatteryOverlay();
+        }'''
+new = '''        // Recovery/stable S24 profile: do not place any custom overlay in the
+        // lower fingerprint region. One UI hides the fingerprint icon when an
+        // accessibility overlay occupies that area.
+        hideBatteryOverlay();'''
+if old not in t:
+    raise SystemExit("custom battery evaluation block not found")
+t = t.replace(old, new, 1)
+
+overlay.write_text(t, encoding="utf-8")
+
+# --- NotificationAnimation: restore Chainfire's original partial-AOD geometry
+# exactly (no full-screen mask, no S24 safety cap).
+anim = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/NotificationAnimation.java")
+t = anim.read_text(encoding="utf-8")
+
+old = '''                    int bottom = resolution.y;
+                    if (!hideAODFully) {
+                        // Proven Chainfire partial-AOD geometry: keep the lower
+                        // fingerprint region completely outside our main overlay window.
+                        bottom = (int)(resolution.y * 0.75f);
+                        if (Build.VERSION.SDK_INT >= 30) {
+                            if (tspOverlayBottom > 0) {
+                                bottom = Math.max(tspRect.bottom, tspOverlayBottom);
+                            } else if (tspRect.bottom > 0) {
+                                bottom = tspRect.bottom;
+                            }
+                        }
+                        // S24 safety cap: One UI can report a transient oversized TSP bound.
+                        bottom = Math.min(bottom, (int)(resolution.y * 0.78f));
+                    }
+
+                    update.set(0, 0, resolution.x, bottom);
+                    spritePlayer.setBackgroundColor(Settings.DEBUG_OVERLAY ? 0x40FF0000 : Color.BLACK);
+                    spritePlayer.setAODMask(false, 0);'''
+new = '''                    int bottom = resolution.y;
+                    if (!hideAODFully) {
+                        // Original Holey Light partial-AOD geometry. This was the
+                        // configuration that already showed the S24 fingerprint reliably.
+                        bottom = (int)(resolution.y * 0.75f);
+                        if (Build.VERSION.SDK_INT >= 30) {
+                            if (tspOverlayBottom > 0) {
+                                bottom = Math.max(tspRect.bottom, tspOverlayBottom);
+                            } else if (tspRect.bottom > 0) {
+                                bottom = tspRect.bottom;
+                            }
+                        }
+                    }
+
+                    update.set(0, 0, resolution.x, bottom);
+                    spritePlayer.setBackgroundColor(Settings.DEBUG_OVERLAY ? 0x40FF0000 : Color.BLACK);
+                    spritePlayer.setAODMask(false, 0);'''
+if old not in t:
+    raise SystemExit("partial AOD geometry recovery anchor not found")
+t = t.replace(old, new, 1)
+
+anim.write_text(t, encoding="utf-8")
+
+# --- Settings UI: accurately describe the stable mode.
+frag = Path("upstream/app/src/main/java/eu/chainfire/holeylight/ui/SettingsFragment.java")
+t = frag.read_text(encoding="utf-8")
+
+t = t.replace(
+    '"Impronta + batteria"',
+    '"Impronta (stabile)"'
+)
+t = t.replace(
+    '"Impronta + batteria\\nSchermo nero, impronta Samsung e batteria disegnata da Holey Light"',
+    '"Impronta (stabile)\\nNasconde orologio/AOD e lascia la zona impronta gestita da Samsung"'
+)
+
+frag.write_text(t, encoding="utf-8")
+
+print("Recovery: restored fingerprint-safe partial AOD and disabled custom battery overlays")
