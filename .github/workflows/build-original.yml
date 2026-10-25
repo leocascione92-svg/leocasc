@@ -1,0 +1,63 @@
+name: Build HoleyLight baseline
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/build-original.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout workspace
+        uses: actions/checkout@v4
+
+      - name: Checkout original HoleyLight source
+        uses: actions/checkout@v4
+        with:
+          repository: Chainfire/HoleyLight
+          ref: cd767e7cb7b53daf1f31558618e0896177a19612
+          path: upstream
+
+      - name: Set up Java 8
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "8"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 31
+        run: sdkmanager "platforms;android-31" "build-tools;31.0.0"
+
+      - name: Make Gradle wrapper executable
+        working-directory: upstream
+        run: chmod +x gradlew
+
+      - name: Show tool versions
+        working-directory: upstream
+        run: |
+          java -version
+          ./gradlew --version
+
+      - name: Build original debug APK
+        working-directory: upstream
+        run: ./gradlew :app:assembleDebug --stacktrace --no-daemon
+
+      - name: Collect APK
+        run: |
+          mkdir -p out
+          cp upstream/app/build/outputs/apk/debug/app-debug.apk out/HoleyLight-ORIGINAL-CLEAN.apk
+          sha256sum out/HoleyLight-ORIGINAL-CLEAN.apk | tee out/SHA256.txt
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HoleyLight-ORIGINAL-CLEAN
+          path: out/*
+          if-no-files-found: error
