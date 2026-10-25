@@ -1,0 +1,121 @@
+name: Build HoleyLight S24 clone
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ s24-clone ]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout workspace
+        uses: actions/checkout@v4
+
+      - name: Checkout original HoleyLight source
+        uses: actions/checkout@v4
+        with:
+          repository: Chainfire/HoleyLight
+          ref: cd767e7cb7b53daf1f31558618e0896177a19612
+          path: upstream
+
+      - name: Set up Java 17 for Android SDK tools
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android SDK 31 using runner SDK
+        run: |
+          SDKMANAGER="/usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-31" "build-tools;31.0.0"
+
+      - name: Switch to Java 8 for legacy Gradle build
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "8"
+
+      - name: Restore legacy dependency repositories
+        working-directory: upstream
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("build.gradle")
+          s = p.read_text()
+          old = """allprojects {
+              repositories {
+                  google()
+                  jcenter()
+              }
+          }"""
+          new = """allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+                  jcenter()
+                  maven { url 'https://jitpack.io' }
+              }
+          }"""
+          if old not in s:
+              raise SystemExit("allprojects repositories block not found")
+          p.write_text(s.replace(old, new))
+          PY
+
+      - name: Apply S24 cutout fix
+        run: python3 scripts/apply_s24_fix.py
+
+      - name: Apply clone identity
+        run: python3 scripts/apply_clone_identity.py
+
+      - name: Show source diff
+        run: git -C upstream diff -- app/build.gradle app/src/main/AndroidManifest.xml app/src/main/java/eu/chainfire/holeylight/animation/Overlay.java app/src/main/java/eu/chainfire/holeylight/misc/AODControl.java app/src/main/res/values/strings.xml app/src/main/res/values/ic_launcher_background_jh.xml
+
+      - name: Make Gradle wrapper executable
+        working-directory: upstream
+        run: chmod +x gradlew
+
+      - name: Show tool versions
+        working-directory: upstream
+        run: |
+          java -version
+          ./gradlew --version
+
+      - name: Sign release with disposable debug key
+        working-directory: upstream
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path("app/build.gradle")
+          s = p.read_text()
+          pattern = r"(release\s*\{\s*\n)(\s*)minifyEnabled true"
+          replacement = r"\1\2signingConfig signingConfigs.debug\n\2minifyEnabled true"
+          s2, n = re.subn(pattern, replacement, s, count=1)
+          if n != 1:
+              raise SystemExit("release buildType insertion point not found")
+          p.write_text(s2)
+          PY
+
+      - name: Build S24 release APK
+        working-directory: upstream
+        run: ./gradlew :app:assembleRelease --stacktrace --no-daemon
+
+      - name: Collect APK
+        run: |
+          mkdir -p out
+          APK="$(find upstream/app/build/outputs/apk/release -maxdepth 1 -name '*.apk' -type f | head -n 1)"
+          test -n "$APK"
+          cp "$APK" out/HoleyLight-S24-CLONE.apk
+          sha256sum out/HoleyLight-S24-CLONE.apk | tee out/SHA256.txt
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: HoleyLight-S24-CLONE
+          path: out/*
+          if-no-files-found: error
