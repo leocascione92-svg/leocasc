@@ -114,16 +114,17 @@ jobs:
               )
 
               anchor = "android {\n"
-              signing = """android {
-    signingConfigs {
-        stableRelease {
-            storeFile file("signing/holeylight-s24.jks")
-            storePassword System.getenv("HOLEY_STORE_PASSWORD")
-            keyAlias System.getenv("HOLEY_KEY_ALIAS")
-            keyPassword System.getenv("HOLEY_KEY_PASSWORD")
-        }
-    }
-"""
+              signing = (
+                  "android {\\n"
+                  "    signingConfigs {\\n"
+                  "        stableRelease {\\n"
+                  "            storeFile file(\\\"signing/holeylight-s24.jks\\\")\\n"
+                  "            storePassword System.getenv(\\\"HOLEY_STORE_PASSWORD\\\")\\n"
+                  "            keyAlias System.getenv(\\\"HOLEY_KEY_ALIAS\\\")\\n"
+                  "            keyPassword System.getenv(\\\"HOLEY_KEY_PASSWORD\\\")\\n"
+                  "        }\\n"
+                  "    }\\n"
+              )
               if anchor not in s:
                   raise SystemExit("android block not found")
               s = s.replace(anchor, signing, 1)
