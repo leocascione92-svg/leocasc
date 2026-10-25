@@ -292,3 +292,277 @@ frag.write_text(t, encoding="utf-8")
 # so the user sees no donation/Play Store/Twitter entries.
 
 print("Applied S24 defaults, actionable AOD shortcuts, and UI cleanup")
+
+
+# 16) S24 AOD profiles + extra notification animation presets.
+# Reuse the stable original renderer and sprite sheets; the new presets vary the
+# original swirl/blink timing rather than introducing a second renderer.
+
+# --- SpritePlayer modes backed by the existing stable sprite sheets ---
+sprite = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/SpritePlayer.java")
+t = sprite.read_text(encoding="utf-8")
+
+old = "public enum Mode { SWIRL, BLINK, SINGLE, TSP, TSP_HIDE }"
+new = "public enum Mode { SWIRL, SWIRL_SLOW, SWIRL_FAST, BLINK, BLINK_SOFT, SINGLE, TSP, TSP_HIDE }"
+if old not in t:
+    raise SystemExit("SpritePlayer Mode enum not found")
+t = t.replace(old, new, 1)
+
+old = '''            switch (drawMode) {
+                case SWIRL: return spriteSheetSwirl;
+                case BLINK: return spriteSheetBlink;
+                case SINGLE: return spriteSheetSingle;
+            }'''
+new = '''            switch (drawMode) {
+                case SWIRL:
+                case SWIRL_SLOW:
+                case SWIRL_FAST:
+                    return spriteSheetSwirl;
+                case BLINK:
+                case BLINK_SOFT:
+                    return spriteSheetBlink;
+                case SINGLE:
+                    return spriteSheetSingle;
+            }'''
+if old not in t:
+    raise SystemExit("SpritePlayer getSpriteSheet switch not found")
+t = t.replace(old, new, 1)
+sprite.write_text(t, encoding="utf-8")
+
+# --- Settings knows how to persist the new presets ---
+settings_file = Path("upstream/app/src/main/java/eu/chainfire/holeylight/misc/Settings.java")
+t = settings_file.read_text(encoding="utf-8")
+old = '''            new AnimationStyle("swirl", SpritePlayer.Mode.SWIRL, R.string.animation_style_swirl_title, R.string.animation_style_location_camera, 5.5f),
+            new AnimationStyle("blink", SpritePlayer.Mode.BLINK, R.string.animation_style_blink_title, R.string.animation_style_location_camera, 3.5f),
+            new AnimationStyle("pie", SpritePlayer.Mode.SINGLE, R.string.animation_style_single_title, R.string.animation_style_location_camera, 3.5f),
+            new AnimationStyle("tsp", SpritePlayer.Mode.TSP, R.string.animation_style_tsp_title, R.string.animation_style_location_screen_center, -1f),'''
+new = '''            new AnimationStyle("swirl", SpritePlayer.Mode.SWIRL, R.string.animation_style_swirl_title, R.string.animation_style_location_camera, 5.5f),
+            new AnimationStyle("swirl_slow", SpritePlayer.Mode.SWIRL_SLOW, R.string.animation_style_swirl_slow_title, R.string.animation_style_location_camera, 5.5f),
+            new AnimationStyle("swirl_fast", SpritePlayer.Mode.SWIRL_FAST, R.string.animation_style_swirl_fast_title, R.string.animation_style_location_camera, 5.5f),
+            new AnimationStyle("blink_soft", SpritePlayer.Mode.BLINK_SOFT, R.string.animation_style_blink_soft_title, R.string.animation_style_location_camera, 3.5f),
+            new AnimationStyle("blink", SpritePlayer.Mode.BLINK, R.string.animation_style_blink_title, R.string.animation_style_location_camera, 3.5f),
+            new AnimationStyle("pie", SpritePlayer.Mode.SINGLE, R.string.animation_style_single_title, R.string.animation_style_location_camera, 3.5f),
+            new AnimationStyle("tsp", SpritePlayer.Mode.TSP, R.string.animation_style_tsp_title, R.string.animation_style_location_screen_center, -1f),'''
+if old not in t:
+    raise SystemExit("Animation style table not found")
+t = t.replace(old, new, 1)
+settings_file.write_text(t, encoding="utf-8")
+
+# --- Mode-specific speed multipliers; the user's tuning speed remains the base ---
+anim = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/NotificationAnimation.java")
+t = anim.read_text(encoding="utf-8")
+old = '''    public float getSpeedFactor() {
+        return settings.getSpeedFactor();
+    }'''
+new = '''    public float getSpeedFactor() {
+        float base = settings.getSpeedFactor();
+        switch (mode) {
+            case SWIRL_SLOW:
+                return base * 0.65f;
+            case SWIRL_FAST:
+                return base * 1.55f;
+            case BLINK_SOFT:
+                return base * 0.60f;
+            default:
+                return base;
+        }
+    }'''
+if old not in t:
+    raise SystemExit("NotificationAnimation speed getter not found")
+t = t.replace(old, new, 1)
+anim.write_text(t, encoding="utf-8")
+
+# --- New titles (fallback English + Italian) ---
+for rel, strings in [
+    ("upstream/app/src/main/res/values/strings.xml", [
+        ("animation_style_swirl_slow_title", "Slow swirl"),
+        ("animation_style_swirl_fast_title", "Fast swirl"),
+        ("animation_style_blink_soft_title", "Soft pulse"),
+    ]),
+    ("upstream/app/src/main/res/values-it/strings.xml", [
+        ("animation_style_swirl_slow_title", "Vortice lento"),
+        ("animation_style_swirl_fast_title", "Vortice rapido"),
+        ("animation_style_blink_soft_title", "Pulsazione morbida"),
+    ]),
+]:
+    p = Path(rel)
+    txt = p.read_text(encoding="utf-8")
+    if "animation_style_swirl_slow_title" not in txt:
+        block = "\n" + "\n".join([f'    <string name="{k}">{v}</string>' for k, v in strings]) + "\n"
+        txt = txt.replace("</resources>", block + "</resources>")
+        p.write_text(txt, encoding="utf-8")
+
+# --- Settings UI: real S24 AOD profiles and expanded animation chooser ---
+frag = Path("upstream/app/src/main/java/eu/chainfire/holeylight/ui/SettingsFragment.java")
+t = frag.read_text(encoding="utf-8")
+
+old = '''            CharSequence[] options = new CharSequence[screenOff ? 5 : 4];
+            options[0] = Html.fromHtml(String.format(Locale.ENGLISH, Settings.AnimationStyle.HTML_FORMAT, getString(R.string.operation_mode_disabled_title), getString(R.string.operation_mode_disabled_description)));
+            options[1] = settings.getAnimationStyle(SpritePlayer.Mode.SWIRL).getHtmlDisplay(getContext(), charging);
+            options[2] = settings.getAnimationStyle(SpritePlayer.Mode.BLINK).getHtmlDisplay(getContext(), charging);
+            options[3] = settings.getAnimationStyle(SpritePlayer.Mode.SINGLE).getHtmlDisplay(getContext(), charging);
+            if (screenOff) {
+                options[4] = settings.getAnimationStyle(SpritePlayer.Mode.TSP).getHtmlDisplay(getContext(), charging);
+            }'''
+new = '''            CharSequence[] options = new CharSequence[screenOff ? 8 : 7];
+            options[0] = Html.fromHtml(String.format(Locale.ENGLISH, Settings.AnimationStyle.HTML_FORMAT, getString(R.string.operation_mode_disabled_title), getString(R.string.operation_mode_disabled_description)));
+            options[1] = settings.getAnimationStyle(SpritePlayer.Mode.SWIRL).getHtmlDisplay(getContext(), charging);
+            options[2] = settings.getAnimationStyle(SpritePlayer.Mode.SWIRL_SLOW).getHtmlDisplay(getContext(), charging);
+            options[3] = settings.getAnimationStyle(SpritePlayer.Mode.SWIRL_FAST).getHtmlDisplay(getContext(), charging);
+            options[4] = settings.getAnimationStyle(SpritePlayer.Mode.BLINK_SOFT).getHtmlDisplay(getContext(), charging);
+            options[5] = settings.getAnimationStyle(SpritePlayer.Mode.BLINK).getHtmlDisplay(getContext(), charging);
+            options[6] = settings.getAnimationStyle(SpritePlayer.Mode.SINGLE).getHtmlDisplay(getContext(), charging);
+            if (screenOff) {
+                options[7] = settings.getAnimationStyle(SpritePlayer.Mode.TSP).getHtmlDisplay(getContext(), charging);
+            }'''
+if old not in t:
+    raise SystemExit("operation options block not found")
+t = t.replace(old, new, 1)
+
+old = '''                                case 1:
+                                    settings.setAnimationMode(mode, SpritePlayer.Mode.SWIRL);
+                                    break;
+                                case 2:
+                                    settings.setAnimationMode(mode, SpritePlayer.Mode.BLINK);
+                                    break;
+                                case 3:
+                                    settings.setAnimationMode(mode, SpritePlayer.Mode.SINGLE);
+                                    break;
+                                case 4:
+                                    settings.setAnimationMode(mode, SpritePlayer.Mode.TSP);
+                                    break;'''
+new = '''                                case 1:
+                                    settings.setAnimationMode(mode, SpritePlayer.Mode.SWIRL);
+                                    break;
+                                case 2:
+                                    settings.setAnimationMode(mode, SpritePlayer.Mode.SWIRL_SLOW);
+                                    break;
+                                case 3:
+                                    settings.setAnimationMode(mode, SpritePlayer.Mode.SWIRL_FAST);
+                                    break;
+                                case 4:
+                                    settings.setAnimationMode(mode, SpritePlayer.Mode.BLINK_SOFT);
+                                    break;
+                                case 5:
+                                    settings.setAnimationMode(mode, SpritePlayer.Mode.BLINK);
+                                    break;
+                                case 6:
+                                    settings.setAnimationMode(mode, SpritePlayer.Mode.SINGLE);
+                                    break;
+                                case 7:
+                                    settings.setAnimationMode(mode, SpritePlayer.Mode.TSP);
+                                    break;'''
+if old not in t:
+    raise SystemExit("operation switch block not found")
+t = t.replace(old, new, 1)
+
+# Insert S24 profile selector immediately after the legacy Hide AOD preference.
+anchor = '''        prefHideAOD.setOnPreferenceClickListener(preference -> {
+            String FORMAT = "%s<br><small>%s</small>";
+            (new AlertDialog.Builder(getContext()))
+                    .setTitle(preference.getTitle())
+                    .setItems(new CharSequence[] {
+                            getString(R.string.disabled),
+                            Html.fromHtml(String.format(Locale.ENGLISH, FORMAT, getString(R.string.hide_aod_full_title), getString(R.string.hide_aod_full_description))),
+                            Html.fromHtml(String.format(Locale.ENGLISH, FORMAT, getString(R.string.hide_aod_partial_title), getString(R.string.hide_aod_partial_description))),
+                    }, (dialog, which) -> {
+                        switch (which) {
+                            case 0:
+                                settings.setHideAOD(false);
+                                break;
+                            case 1:
+                                settings.setHideAOD(true, true);
+                                break;
+                            case 2:
+                                settings.setHideAOD(true, false);
+                                break;
+                        }
+                    })
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
+            return false;
+        });'''
+if anchor not in t:
+    raise SystemExit("Hide AOD block not found")
+
+profile = anchor + '''
+
+        // S24-friendly profiles: they map directly to Holey Light's existing
+        // partial/full AOD masking behavior. Samsung still renders fingerprint
+        // and battery information in the exposed lower area.
+        PreferenceCategory catS24AOD = category(root, 0, 0);
+        catS24AOD.setTitle("AOD S24");
+
+        Preference prefS24Profile = pref(catS24AOD, 0, 0, null, true, null);
+        prefS24Profile.setTitle("Modalità AOD");
+
+        Runnable refreshS24Profile = () -> {
+            String summary;
+            if (!settings.isHideAOD()) {
+                summary = "AOD Samsung completo";
+            } else if (settings.isHideAODFully()) {
+                summary = "Solo vortice";
+            } else if (!settings.isShowAODClock()) {
+                summary = "Impronta + batteria";
+            } else {
+                summary = "Personalizzato";
+            }
+            prefS24Profile.setSummary(summary);
+        };
+
+        prefS24Profile.setOnPreferenceClickListener(preference -> {
+            (new AlertDialog.Builder(getContext()))
+                    .setTitle("Modalità AOD S24")
+                    .setItems(new CharSequence[] {
+                            "AOD Samsung completo\nOrologio e contenuti One UI visibili",
+                            "Impronta + batteria\nNiente orologio; lascia visibile la fascia inferiore",
+                            "Solo vortice\nAOD oscurato completamente",
+                            "Personalizzato\nUsa le opzioni avanzate già presenti"
+                    }, (dialog, which) -> {
+                        switch (which) {
+                            case 0:
+                                settings.setHideAOD(false, false);
+                                settings.setShowAODClock(false);
+                                break;
+                            case 1:
+                                settings.setHideAOD(true, false);
+                                settings.setShowAODClock(false);
+                                break;
+                            case 2:
+                                settings.setHideAOD(true, true);
+                                settings.setShowAODClock(false);
+                                break;
+                            case 3:
+                                prefHideAOD.performClick();
+                                break;
+                        }
+                        refreshS24Profile.run();
+                    })
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
+            return true;
+        });
+        refreshS24Profile.run();
+
+        prefHideAOD.setTitle("Mascheramento AOD (avanzato)");'''
+t = t.replace(anchor, profile, 1)
+
+# Rename the old clock toggle so it reads as an advanced/custom control.
+old = '''        prefUnholeyClock = check(catAnimation, R.string.settings_animation_unholey_light_show_clock_title, 0, Settings.AOD_SHOW_CLOCK, Settings.AOD_SHOW_CLOCK_DEFAULT, true);'''
+new = '''        prefUnholeyClock = check(catAnimation, R.string.settings_animation_unholey_light_show_clock_title, 0, Settings.AOD_SHOW_CLOCK, Settings.AOD_SHOW_CLOCK_DEFAULT, true);
+        prefUnholeyClock.setTitle("Mostra orologio AOD (avanzato)");'''
+if old not in t:
+    raise SystemExit("AOD clock preference not found")
+t = t.replace(old, new, 1)
+
+# Remove the old Samsung Tips block entirely: profiles above replace it.
+start = t.find("        if (Manufacturer.isSamsung()) {\n            PreferenceCategory catTips = category(root, R.string.settings_category_tips, 0);")
+if start != -1:
+    end = t.find("\n\n        updatePrefs(null, true);", start)
+    if end == -1:
+        raise SystemExit("Samsung tips block end not found")
+    t = t[:start] + t[end:]
+
+frag.write_text(t, encoding="utf-8")
+
+print("Added S24 AOD profiles and extra animation presets")
