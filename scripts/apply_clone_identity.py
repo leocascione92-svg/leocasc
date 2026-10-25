@@ -128,3 +128,50 @@ if old not in t:
 tracker.write_text(t.replace(old, new, 1), encoding="utf-8")
 
 print("Added no-companion notification color fallback and AOD self-test support")
+
+
+# 11) Add a direct renderer diagnostic that bypasses NotificationListenerService.
+main = Path("upstream/app/src/main/java/eu/chainfire/holeylight/ui/MainActivity.java")
+t = main.read_text(encoding="utf-8")
+
+needle = '''        MenuItem item = menu.add("");
+        item.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
+        item.setActionView(layout);
+        return true;'''
+
+replacement = '''        MenuItem vortexTest = menu.add("TEST VORTEX DIRETTO");
+        vortexTest.setShowAsAction(MenuItem.SHOW_AS_ACTION_NEVER);
+        vortexTest.setOnMenuItemClickListener(clicked -> {
+            eu.chainfire.holeylight.animation.Overlay overlay =
+                    eu.chainfire.holeylight.animation.Overlay.getInstance();
+            if (overlay == null) {
+                android.widget.Toast.makeText(
+                        MainActivity.this,
+                        "Overlay NON inizializzato: AccessibilityService non collegato",
+                        android.widget.Toast.LENGTH_LONG
+                ).show();
+            } else {
+                overlay.show(
+                        new int[] { 0xFFFFFFFF },
+                        new android.graphics.drawable.Drawable[0],
+                        true
+                );
+                android.widget.Toast.makeText(
+                        MainActivity.this,
+                        "Overlay diretto inviato: dovrebbe apparire il vortice bianco",
+                        android.widget.Toast.LENGTH_LONG
+                ).show();
+            }
+            return true;
+        });
+
+        MenuItem item = menu.add("");
+        item.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
+        item.setActionView(layout);
+        return true;'''
+
+if needle not in t:
+    raise SystemExit("options menu insertion point not found")
+main.write_text(t.replace(needle, replacement, 1), encoding="utf-8")
+
+print("Added direct vortex renderer diagnostic")
