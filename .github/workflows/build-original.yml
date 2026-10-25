@@ -39,6 +39,32 @@ jobs:
           distribution: temurin
           java-version: "8"
 
+      - name: Restore legacy dependency repositories
+        working-directory: upstream
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("build.gradle")
+          s = p.read_text()
+          old = """allprojects {
+              repositories {
+                  google()
+                  jcenter()
+              }
+          }"""
+          new = """allprojects {
+              repositories {
+                  google()
+                  mavenCentral()
+                  jcenter()
+                  maven { url 'https://jitpack.io' }
+              }
+          }"""
+          if old not in s:
+              raise SystemExit("allprojects repositories block not found")
+          p.write_text(s.replace(old, new))
+          PY
+
       - name: Make Gradle wrapper executable
         working-directory: upstream
         run: chmod +x gradlew
