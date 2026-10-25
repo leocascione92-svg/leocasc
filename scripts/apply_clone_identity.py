@@ -84,3 +84,47 @@ for old, new in repls.items():
 main.write_text(t, encoding="utf-8")
 
 print("Removed obsolete Companion Device pairing requirement")
+
+
+# 9) Modern fallback when notification-channel inspection is denied without a
+# Companion Device association. Keep notifications visible using their own
+# accent color (or white) instead of dropping the whole batch.
+listener = Path("upstream/app/src/main/java/eu/chainfire/holeylight/service/NotificationListenerService.java")
+t = listener.read_text(encoding="utf-8")
+
+old = '''                    List<NotificationChannel> chans = getNotificationChannels(sbn.getPackageName(), Process.myUserHandle());
+                    for (NotificationChannel chan : chans) {'''
+
+new = '''                    List<NotificationChannel> chans;
+                    try {
+                        chans = getNotificationChannels(sbn.getPackageName(), Process.myUserHandle());
+                    } catch (SecurityException channelAccessDenied) {
+                        chans = new ArrayList<>();
+                        shouldShowLights = true;
+                        c = ((not.color & 0x00FFFFFF) != 0)
+                                ? (not.color | 0xFF000000)
+                                : Color.WHITE;
+                        cChan = c;
+                        log("Channel access denied for %s; fallback color #%08X", sbn.getPackageName(), c);
+                    }
+                    for (NotificationChannel chan : chans) {'''
+
+if old not in t:
+    raise SystemExit("notification-channel lookup block not found")
+t = t.replace(old, new, 1)
+
+# The old outer catch was specifically masking the companion-association failure.
+# Keep it as a safety net, but with the local fallback above it should no longer
+# swallow ordinary notifications.
+listener.write_text(t, encoding="utf-8")
+
+# 10) Let Holey Light's own persistent test notification exercise AOD too.
+tracker = Path("upstream/app/src/main/java/eu/chainfire/holeylight/service/NotificationTracker.java")
+t = tracker.read_text(encoding="utf-8")
+old = '''            boolean blockSelf = isSelf && !screenOn && !TestRunner.isRunning();'''
+new = '''            boolean blockSelf = false; // S24 clone: allow the built-in test notification on AOD'''
+if old not in t:
+    raise SystemExit("self-notification AOD block not found")
+tracker.write_text(t.replace(old, new, 1), encoding="utf-8")
+
+print("Added no-companion notification color fallback and AOD self-test support")
