@@ -250,7 +250,7 @@ new = '''            pref(catTips, R.string.tips_samsung_fingerprint_title, 0, n
 
             pref(catTips, R.string.tips_samsung_battery_title, 0, null, true, preference -> {
                 try {
-                    Intent i = new Intent(android.provider.Settings.ACTION_BATTERY_SAVER_SETTINGS);
+                    Intent i = new Intent(android.provider.Settings.ACTION_BATTERY_SETTINGS);
                     startActivity(i);
                 } catch (Exception e) {
                     startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS));
@@ -261,6 +261,31 @@ new = '''            pref(catTips, R.string.tips_samsung_fingerprint_title, 0, n
 if old not in t:
     raise SystemExit("Samsung tips block not found")
 t = t.replace(old, new, 1)
+
+# Upstream updatePrefs() can make the top donation preference visible again.
+old = '''            if (activity != null) {
+                boolean donateAtTop = activity.iapAvailable && settings.getPurchased().length == 0;
+                int iSummary = activity.iapAvailable ? R.string.donate_description_iap : R.string.donate_description_paypal;
+                boolean enabled = activity.iapAvailable;
+                
+                prefDonateTop.setSummary(iSummary);
+                prefDonateTop.setEnabled(enabled);
+                prefDonateTop.setVisible(donateAtTop);
+
+                prefDonateBottom.setSummary(iSummary);
+                prefDonateBottom.setEnabled(enabled);
+                prefDonateBottom.setVisible(!donateAtTop);
+            }'''
+
+new = '''            if (activity != null) {
+                if (prefDonateTop != null) prefDonateTop.setVisible(false);
+                if (prefDonateBottom != null) prefDonateBottom.setVisible(false);
+            }'''
+
+if old not in t:
+    raise SystemExit("donation visibility block not found")
+t = t.replace(old, new, 1)
+
 frag.write_text(t, encoding="utf-8")
 
 # Keep billing code untouched for compatibility. The promotional category is hidden,
