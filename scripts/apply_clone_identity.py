@@ -1397,3 +1397,411 @@ t = t.replace(needle, replacement, 1)
 frag.write_text(t, encoding="utf-8")
 
 print("Added DoubleComet/Heartbeat/Radar/Neon/Ripple and simplified AOD Helper UI")
+
+
+# 20) Procedural effect controls + keep AOD Helper entirely out of the normal UI.
+
+# --- Persist global procedural effect controls ---
+settings_file = Path("upstream/app/src/main/java/eu/chainfire/holeylight/misc/Settings.java")
+t = settings_file.read_text(encoding="utf-8")
+
+needle = '''    private static final String SPEED_FACTOR = "speed_factor";'''
+replacement = '''    private static final String SPEED_FACTOR = "speed_factor";
+
+    private static final String EFFECT_DIRECTION = "effect_direction";
+    private static final String EFFECT_SPEED = "effect_speed";
+    private static final String EFFECT_INTENSITY = "effect_intensity";
+    private static final String EFFECT_TRAIL = "effect_trail";
+    private static final String EFFECT_ORBIT_DOTS = "effect_orbit_dots";
+    private static final String EFFECT_RIPPLE_WAVES = "effect_ripple_waves";'''
+if needle not in t:
+    raise SystemExit("effect settings constants anchor not found")
+t = t.replace(needle, replacement, 1)
+
+needle = '''    public void setSpeedFactor(float value) {
+        value = Math.min(Math.max(value, 0.5f), 2.0f);
+
+        put(SPEED_FACTOR, value, true);
+    }'''
+replacement = '''    public void setSpeedFactor(float value) {
+        value = Math.min(Math.max(value, 0.5f), 2.0f);
+
+        put(SPEED_FACTOR, value, true);
+    }
+
+    public int getEffectDirection() {
+        return prefs.getInt(EFFECT_DIRECTION, 1);
+    }
+
+    public void setEffectDirection(int value) {
+        put(EFFECT_DIRECTION, value < 0 ? -1 : 1, true);
+    }
+
+    public float getEffectSpeed() {
+        return prefs.getFloat(EFFECT_SPEED, 1.0f);
+    }
+
+    public void setEffectSpeed(float value) {
+        put(EFFECT_SPEED, Math.min(Math.max(value, 0.5f), 2.0f), true);
+    }
+
+    public float getEffectIntensity() {
+        return prefs.getFloat(EFFECT_INTENSITY, 1.0f);
+    }
+
+    public void setEffectIntensity(float value) {
+        put(EFFECT_INTENSITY, Math.min(Math.max(value, 0.5f), 1.5f), true);
+    }
+
+    public float getEffectTrail() {
+        return prefs.getFloat(EFFECT_TRAIL, 1.0f);
+    }
+
+    public void setEffectTrail(float value) {
+        put(EFFECT_TRAIL, Math.min(Math.max(value, 0.5f), 2.0f), true);
+    }
+
+    public int getEffectOrbitDots() {
+        return prefs.getInt(EFFECT_ORBIT_DOTS, 4);
+    }
+
+    public void setEffectOrbitDots(int value) {
+        put(EFFECT_ORBIT_DOTS, Math.min(Math.max(value, 2), 8), true);
+    }
+
+    public int getEffectRippleWaves() {
+        return prefs.getInt(EFFECT_RIPPLE_WAVES, 3);
+    }
+
+    public void setEffectRippleWaves(int value) {
+        put(EFFECT_RIPPLE_WAVES, Math.min(Math.max(value, 2), 6), true);
+    }'''
+if needle not in t:
+    raise SystemExit("effect settings getters anchor not found")
+t = t.replace(needle, replacement, 1)
+settings_file.write_text(t, encoding="utf-8")
+
+# --- Apply controls in the procedural renderer ---
+sprite = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/SpritePlayer.java")
+t = sprite.read_text(encoding="utf-8")
+
+needle = '''        float radius = Math.max(2f * dpToPx, Math.min(width, height) / 2f - (4f * dpToPx));
+        float safeSpeed = Math.max(0.15f, speed);
+
+        paintProcedural.setShader(null);'''
+replacement = '''        float radius = Math.max(2f * dpToPx, Math.min(width, height) / 2f - (4f * dpToPx));
+
+        Settings effectSettings = Settings.getInstance(getContext());
+        int effectDirection = effectSettings.getEffectDirection();
+        float effectSpeed = effectSettings.getEffectSpeed();
+        float effectIntensity = effectSettings.getEffectIntensity();
+        float effectTrail = effectSettings.getEffectTrail();
+        int effectOrbitDots = effectSettings.getEffectOrbitDots();
+        int effectRippleWaves = effectSettings.getEffectRippleWaves();
+
+        float safeSpeed = Math.max(0.15f, speed * effectSpeed);
+
+        paintProcedural.setShader(null);'''
+if needle not in t:
+    raise SystemExit("effect renderer settings anchor not found")
+t = t.replace(needle, replacement, 1)
+
+# Comet: direction + trail + intensity
+old = '''            float phase = ((diff % (long)Math.max(1f, cycle)) / cycle) * 360f;
+            paintProcedural.setStyle(Paint.Style.STROKE);
+            paintProcedural.setStrokeWidth(3.2f * dpToPx);
+            for (int i = 0; i < 9; i++) {
+                int alpha = Math.max(18, 255 - (i * 27));'''
+new = '''            float phase = ((diff % (long)Math.max(1f, cycle)) / cycle) * 360f * effectDirection;
+            paintProcedural.setStyle(Paint.Style.STROKE);
+            paintProcedural.setStrokeWidth(3.2f * effectIntensity * dpToPx);
+            int trailSteps = Math.max(4, Math.min(16, Math.round(9f * effectTrail)));
+            for (int i = 0; i < trailSteps; i++) {
+                int alpha = Math.max(18, Math.min(255, Math.round((255 - (i * (235f / trailSteps))) * effectIntensity)));'''
+if old not in t:
+    raise SystemExit("comet controls anchor not found")
+t = t.replace(old, new, 1)
+
+t = t.replace(
+'''                    3.4f * dpToPx,
+                    paintProcedural''',
+'''                    3.4f * effectIntensity * dpToPx,
+                    paintProcedural''',
+1)
+
+# Breath
+old = '''            int alpha = 60 + Math.round(195f * wave);
+            float breatheRadius = radius - ((1f - wave) * 2.5f * dpToPx);
+            paintProcedural.setStyle(Paint.Style.STROKE);
+            paintProcedural.setStrokeWidth((2.0f + (3.4f * wave)) * dpToPx);'''
+new = '''            int alpha = Math.min(255, Math.round((60 + (195f * wave)) * effectIntensity));
+            float breatheRadius = radius - ((1f - wave) * 2.5f * dpToPx);
+            paintProcedural.setStyle(Paint.Style.STROKE);
+            paintProcedural.setStrokeWidth((2.0f + (3.4f * wave)) * effectIntensity * dpToPx);'''
+if old not in t:
+    raise SystemExit("breath controls anchor not found")
+t = t.replace(old, new, 1)
+
+# Orbit
+old = '''            float phase = ((diff % (long)Math.max(1f, cycle)) / cycle) * 360f;
+            paintProcedural.setStyle(Paint.Style.FILL);
+            final int dots = 4;
+            for (int i = 0; i < dots; i++) {
+                float angle = phase + ((360f / dots) * i);'''
+new = '''            float phase = ((diff % (long)Math.max(1f, cycle)) / cycle) * 360f * effectDirection;
+            paintProcedural.setStyle(Paint.Style.FILL);
+            final int dots = effectOrbitDots;
+            for (int i = 0; i < dots; i++) {
+                float angle = phase + ((360f / dots) * i);'''
+if old not in t:
+    raise SystemExit("orbit controls anchor not found")
+t = t.replace(old, new, 1)
+
+old = '''                int alpha = 255 - (i * 35);
+                paintProcedural.setColor((c & 0x00FFFFFF) | (alpha << 24));
+                float dotR = (i == 0 ? 3.8f : 2.7f) * dpToPx;'''
+new = '''                int alpha = Math.max(70, Math.min(255, Math.round((255 - (i * (140f / dots))) * effectIntensity)));
+                paintProcedural.setColor((c & 0x00FFFFFF) | (alpha << 24));
+                float dotR = (i == 0 ? 3.8f : 2.7f) * effectIntensity * dpToPx;'''
+if old not in t:
+    raise SystemExit("orbit intensity anchor not found")
+t = t.replace(old, new, 1)
+
+# Double comet
+old = '''            float phase = ((diff % (long)Math.max(1f, cycle)) / cycle) * 360f;
+            paintProcedural.setStyle(Paint.Style.STROKE);
+            paintProcedural.setStrokeWidth(3.0f * dpToPx);
+            for (int head = 0; head < 2; head++) {
+                float base = phase + (head * 180f);
+                for (int i = 0; i < 8; i++) {
+                    int alpha = Math.max(20, 245 - (i * 29));'''
+new = '''            float phase = ((diff % (long)Math.max(1f, cycle)) / cycle) * 360f * effectDirection;
+            paintProcedural.setStyle(Paint.Style.STROKE);
+            paintProcedural.setStrokeWidth(3.0f * effectIntensity * dpToPx);
+            int trailSteps = Math.max(4, Math.min(15, Math.round(8f * effectTrail)));
+            for (int head = 0; head < 2; head++) {
+                float base = phase + (head * 180f);
+                for (int i = 0; i < trailSteps; i++) {
+                    int alpha = Math.max(20, Math.min(255, Math.round((245 - (i * (220f / trailSteps))) * effectIntensity)));'''
+if old not in t:
+    raise SystemExit("double comet controls anchor not found")
+t = t.replace(old, new, 1)
+
+# Heartbeat intensity
+old = '''            int alpha = 42 + Math.round(213f * beat);
+            int c = activeColors[0];
+            paintProcedural.setStyle(Paint.Style.STROKE);
+            paintProcedural.setStrokeWidth((1.8f + (4.8f * beat)) * dpToPx);'''
+new = '''            int alpha = Math.min(255, Math.round((42 + (213f * beat)) * effectIntensity));
+            int c = activeColors[0];
+            paintProcedural.setStyle(Paint.Style.STROKE);
+            paintProcedural.setStrokeWidth((1.8f + (4.8f * beat)) * effectIntensity * dpToPx);'''
+if old not in t:
+    raise SystemExit("heartbeat controls anchor not found")
+t = t.replace(old, new, 1)
+
+# Radar direction/trail/intensity
+old = '''            float phase = ((diff % (long)Math.max(1f, cycle)) / cycle) * 360f;
+            int c = activeColors[0];
+            paintProcedural.setStyle(Paint.Style.STROKE);
+            paintProcedural.setStrokeWidth(1.5f * dpToPx);
+            paintProcedural.setColor((c & 0x00FFFFFF) | 0x33000000);
+            canvas.drawCircle(cx, cy, radius, paintProcedural);
+            for (int i = 0; i < 7; i++) {
+                int alpha = Math.max(24, 240 - (i * 31));
+                paintProcedural.setStrokeWidth((3.6f - (i * 0.28f)) * dpToPx);'''
+new = '''            float phase = ((diff % (long)Math.max(1f, cycle)) / cycle) * 360f * effectDirection;
+            int c = activeColors[0];
+            paintProcedural.setStyle(Paint.Style.STROKE);
+            paintProcedural.setStrokeWidth(1.5f * effectIntensity * dpToPx);
+            paintProcedural.setColor((c & 0x00FFFFFF) | 0x33000000);
+            canvas.drawCircle(cx, cy, radius, paintProcedural);
+            int radarSteps = Math.max(4, Math.min(14, Math.round(7f * effectTrail)));
+            for (int i = 0; i < radarSteps; i++) {
+                int alpha = Math.max(24, Math.min(255, Math.round((240 - (i * (210f / radarSteps))) * effectIntensity)));
+                paintProcedural.setStrokeWidth(Math.max(1.0f, 3.6f - (i * (2.0f / radarSteps))) * effectIntensity * dpToPx);'''
+if old not in t:
+    raise SystemExit("radar controls anchor not found")
+t = t.replace(old, new, 1)
+
+# Neon direction/intensity
+old = '''            float phase = ((diff % (long)Math.max(1f, cycle)) / cycle) * 360f;
+            int c = activeColors[0];'''
+new = '''            float phase = ((diff % (long)Math.max(1f, cycle)) / cycle) * 360f * effectDirection;
+            int c = activeColors[0];'''
+# Replace only next occurrence after RADAR block's start by targeted split
+radar_pos = t.find("} else if (drawMode == Mode.NEON)")
+if radar_pos == -1:
+    raise SystemExit("neon block not found")
+segment = t[radar_pos:]
+if old not in segment:
+    raise SystemExit("neon phase anchor not found")
+segment = segment.replace(old, new, 1)
+t = t[:radar_pos] + segment
+
+old = '''            paintProcedural.setStrokeWidth(7.0f * dpToPx);
+            paintProcedural.setAlpha(70);
+            canvas.drawCircle(cx, cy, radius, paintProcedural);
+            paintProcedural.setStrokeWidth(3.0f * dpToPx);'''
+new = '''            paintProcedural.setStrokeWidth(7.0f * effectIntensity * dpToPx);
+            paintProcedural.setAlpha(Math.min(150, Math.round(70f * effectIntensity)));
+            canvas.drawCircle(cx, cy, radius, paintProcedural);
+            paintProcedural.setStrokeWidth(3.0f * effectIntensity * dpToPx);'''
+if old not in t:
+    raise SystemExit("neon intensity anchor not found")
+t = t.replace(old, new, 1)
+
+# Ripple waves/intensity
+old = '''            paintProcedural.setStyle(Paint.Style.STROKE);
+            for (int i = 0; i < 3; i++) {
+                float p = (part + (i / 3f)) % 1f;
+                float rr = radius * (0.63f + (0.37f * p));
+                int alpha = Math.max(10, Math.round(210f * (1f - p)));
+                paintProcedural.setStrokeWidth((1.2f + (2.5f * (1f - p))) * dpToPx);'''
+new = '''            paintProcedural.setStyle(Paint.Style.STROKE);
+            int waves = effectRippleWaves;
+            for (int i = 0; i < waves; i++) {
+                float p = (part + (i / (float)waves)) % 1f;
+                float rr = radius * (0.63f + (0.37f * p));
+                int alpha = Math.max(10, Math.min(255, Math.round(210f * (1f - p) * effectIntensity)));
+                paintProcedural.setStrokeWidth((1.2f + (2.5f * (1f - p))) * effectIntensity * dpToPx);'''
+if old not in t:
+    raise SystemExit("ripple controls anchor not found")
+t = t.replace(old, new, 1)
+
+sprite.write_text(t, encoding="utf-8")
+
+# --- Expose controls in Animation section ---
+frag = Path("upstream/app/src/main/java/eu/chainfire/holeylight/ui/SettingsFragment.java")
+t = frag.read_text(encoding="utf-8")
+
+anchor = '''        Preference prefAODBrightness = pref(catAnimation, R.string.settings_animation_brightness_title, 0, null, true, null);'''
+if anchor not in t:
+    raise SystemExit("effect controls UI insertion anchor not found")
+
+controls = '''        Runnable previewCurrentEffect = () -> {
+            eu.chainfire.holeylight.animation.Overlay overlay = eu.chainfire.holeylight.animation.Overlay.getInstance();
+            if (overlay != null) {
+                overlay.preview(settings.getAnimationMode(Settings.SCREEN_ON_BATTERY));
+            }
+        };
+
+        Preference prefEffectDirection = pref(catAnimation, 0, 0, null, true, null);
+        prefEffectDirection.setTitle("Direzione effetti");
+        prefEffectDirection.setSummary(settings.getEffectDirection() < 0 ? "Antiorario" : "Orario");
+        prefEffectDirection.setOnPreferenceClickListener(preference -> {
+            int value = settings.getEffectDirection() < 0 ? 1 : -1;
+            settings.setEffectDirection(value);
+            preference.setSummary(value < 0 ? "Antiorario" : "Orario");
+            previewCurrentEffect.run();
+            return true;
+        });
+
+        Preference prefEffectSpeed = pref(catAnimation, 0, 0, null, true, null);
+        prefEffectSpeed.setTitle("Velocità effetti");
+        prefEffectSpeed.setSummary(String.format(Locale.ENGLISH, "%.2fx", settings.getEffectSpeed()));
+        prefEffectSpeed.setOnPreferenceClickListener(preference -> {
+            final float[] values = new float[] { 0.50f, 0.75f, 1.00f, 1.25f, 1.50f, 2.00f };
+            final CharSequence[] labels = new CharSequence[] { "0,50x", "0,75x", "1,00x", "1,25x", "1,50x", "2,00x" };
+            (new AlertDialog.Builder(getContext()))
+                    .setTitle("Velocità effetti")
+                    .setItems(labels, (dialog, which) -> {
+                        settings.setEffectSpeed(values[which]);
+                        preference.setSummary(labels[which]);
+                        previewCurrentEffect.run();
+                    })
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
+            return true;
+        });
+
+        Preference prefEffectIntensity = pref(catAnimation, 0, 0, null, true, null);
+        prefEffectIntensity.setTitle("Intensità / glow");
+        prefEffectIntensity.setSummary(Math.round(settings.getEffectIntensity() * 100f) + "%");
+        prefEffectIntensity.setOnPreferenceClickListener(preference -> {
+            final float[] values = new float[] { 0.50f, 0.75f, 1.00f, 1.25f, 1.50f };
+            final CharSequence[] labels = new CharSequence[] { "50%", "75%", "100%", "125%", "150%" };
+            (new AlertDialog.Builder(getContext()))
+                    .setTitle("Intensità / glow")
+                    .setItems(labels, (dialog, which) -> {
+                        settings.setEffectIntensity(values[which]);
+                        preference.setSummary(labels[which]);
+                        previewCurrentEffect.run();
+                    })
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
+            return true;
+        });
+
+        Preference prefEffectTrail = pref(catAnimation, 0, 0, null, true, null);
+        prefEffectTrail.setTitle("Lunghezza scia");
+        prefEffectTrail.setSummary(String.format(Locale.ENGLISH, "%.2fx", settings.getEffectTrail()));
+        prefEffectTrail.setOnPreferenceClickListener(preference -> {
+            final float[] values = new float[] { 0.55f, 0.80f, 1.00f, 1.35f, 1.70f, 2.00f };
+            final CharSequence[] labels = new CharSequence[] { "Molto corta", "Corta", "Normale", "Lunga", "Molto lunga", "Massima" };
+            (new AlertDialog.Builder(getContext()))
+                    .setTitle("Lunghezza scia")
+                    .setItems(labels, (dialog, which) -> {
+                        settings.setEffectTrail(values[which]);
+                        preference.setSummary(labels[which]);
+                        previewCurrentEffect.run();
+                    })
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
+            return true;
+        });
+
+        Preference prefEffectOrbitDots = pref(catAnimation, 0, 0, null, true, null);
+        prefEffectOrbitDots.setTitle("Punti Orbit");
+        prefEffectOrbitDots.setSummary(String.valueOf(settings.getEffectOrbitDots()));
+        prefEffectOrbitDots.setOnPreferenceClickListener(preference -> {
+            final int[] values = new int[] { 2, 3, 4, 6, 8 };
+            final CharSequence[] labels = new CharSequence[] { "2", "3", "4", "6", "8" };
+            (new AlertDialog.Builder(getContext()))
+                    .setTitle("Punti Orbit")
+                    .setItems(labels, (dialog, which) -> {
+                        settings.setEffectOrbitDots(values[which]);
+                        preference.setSummary(labels[which]);
+                        previewCurrentEffect.run();
+                    })
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
+            return true;
+        });
+
+        Preference prefEffectRippleWaves = pref(catAnimation, 0, 0, null, true, null);
+        prefEffectRippleWaves.setTitle("Onde Ripple");
+        prefEffectRippleWaves.setSummary(String.valueOf(settings.getEffectRippleWaves()));
+        prefEffectRippleWaves.setOnPreferenceClickListener(preference -> {
+            final int[] values = new int[] { 2, 3, 4, 5, 6 };
+            final CharSequence[] labels = new CharSequence[] { "2", "3", "4", "5", "6" };
+            (new AlertDialog.Builder(getContext()))
+                    .setTitle("Onde Ripple")
+                    .setItems(labels, (dialog, which) -> {
+                        settings.setEffectRippleWaves(values[which]);
+                        preference.setSummary(labels[which]);
+                        previewCurrentEffect.run();
+                    })
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
+            return true;
+        });
+
+''' + anchor
+t = t.replace(anchor, controls, 1)
+
+# Remove the optional AOD Helper shortcut we added in the previous pass.
+start = t.find('''        Preference prefAODPowerSave = pref(catS24AOD, 0, 0, null, true, null);''')
+if start != -1:
+    end_marker = '''        refreshAODPowerSave.run();
+
+'''
+    end = t.find(end_marker, start)
+    if end == -1:
+        raise SystemExit("AOD Helper shortcut end not found")
+    end += len(end_marker)
+    t = t[:start] + t[end:]
+
+frag.write_text(t, encoding="utf-8")
+
+print("Added procedural effect controls and removed AOD Helper from normal UI")
