@@ -2664,3 +2664,289 @@ t = t.replace(old, new, 1)
 anim.write_text(t, encoding="utf-8")
 
 print("Restored visible Samsung fingerprint with dedicated partial AOD mask")
+
+
+# 25) Correct architecture for S24 fingerprint + battery:
+# restore Chainfire's proven partial AOD mask and render battery in a SECOND,
+# independent bottom overlay window. Never extend the AOD mask window downward.
+
+# --- Disable the experimental in-SpritePlayer AOD mask/battery children.
+sprite = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/SpritePlayer.java")
+t = sprite.read_text(encoding="utf-8")
+
+start = t.find('''    public void setAODMask(boolean value, int heightPx) {''')
+if start == -1:
+    raise SystemExit("setAODMask method not found")
+end = t.find('''    public void setShowBatteryStatus(boolean value) {''', start)
+if end == -1:
+    raise SystemExit("setShowBatteryStatus anchor not found")
+replacement = '''    public void setAODMask(boolean value, int heightPx) {
+        // Legacy from the first S24 battery experiment. The actual AOD mask is
+        // again provided by the parent window geometry in NotificationAnimation.
+        handlerMain.post(() -> {
+            if (aodMaskView != null) aodMaskView.setVisibility(View.GONE);
+        });
+    }
+
+'''
+t = t[:start] + replacement + t[end:]
+
+start = t.find('''    public void setShowBatteryStatus(boolean value) {''')
+if start == -1:
+    raise SystemExit("setShowBatteryStatus method not found")
+end = t.find('''    public void setDrawBackground(boolean drawBackground) {''', start)
+if end == -1:
+    raise SystemExit("setDrawBackground anchor not found")
+replacement = '''    public void setShowBatteryStatus(boolean value) {
+        // Battery is now rendered by Overlay in a dedicated bottom window.
+        showBatteryStatus = false;
+        handlerMain.post(() -> {
+            if (batteryContainer != null) batteryContainer.setVisibility(View.GONE);
+        });
+    }
+
+'''
+t = t[:start] + replacement + t[end:]
+sprite.write_text(t, encoding="utf-8")
+
+# --- Restore original partial-AOD parent geometry.
+anim = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/NotificationAnimation.java")
+t = anim.read_text(encoding="utf-8")
+
+old = '''                    int maskBottom = resolution.y;
+                    if (!hideAODFully) {
+                        // Restore Chainfire's partial-AOD geometry: mask the clock/content
+                        // area but leave the lower Samsung fingerprint region exposed.
+                        maskBottom = (int)(resolution.y * 0.75f);
+                        if (Build.VERSION.SDK_INT >= 30) {
+                            if (tspOverlayBottom > 0) {
+                                maskBottom = Math.max(tspRect.bottom, tspOverlayBottom);
+                            } else if (tspRect.bottom > 0) {
+                                maskBottom = tspRect.bottom;
+                            }
+                        }
+                        // Never let Samsung's dynamic TSP bounds swallow the fingerprint
+                        // region completely on the S24.
+                        maskBottom = Math.min(maskBottom, (int)(resolution.y * 0.78f));
+                    }
+
+                    // Full-screen transparent window; black only the requested upper area.
+                    update.set(0, 0, resolution.x, resolution.y);
+                    spritePlayer.setBackgroundColor(Color.TRANSPARENT);
+                    spritePlayer.setAODMask(true, maskBottom);'''
+new = '''                    int bottom = resolution.y;
+                    if (!hideAODFully) {
+                        // Proven Chainfire partial-AOD geometry: keep the lower
+                        // fingerprint region completely outside our main overlay window.
+                        bottom = (int)(resolution.y * 0.75f);
+                        if (Build.VERSION.SDK_INT >= 30) {
+                            if (tspOverlayBottom > 0) {
+                                bottom = Math.max(tspRect.bottom, tspOverlayBottom);
+                            } else if (tspRect.bottom > 0) {
+                                bottom = tspRect.bottom;
+                            }
+                        }
+                        // S24 safety cap: One UI can report a transient oversized TSP bound.
+                        bottom = Math.min(bottom, (int)(resolution.y * 0.78f));
+                    }
+
+                    update.set(0, 0, resolution.x, bottom);
+                    spritePlayer.setBackgroundColor(Settings.DEBUG_OVERLAY ? 0x40FF0000 : Color.BLACK);
+                    spritePlayer.setAODMask(false, 0);'''
+if old not in t:
+    raise SystemExit("experimental partial AOD mask block not found")
+t = t.replace(old, new, 1)
+
+old = '''                spritePlayer.setDrawBackground(false);
+                spritePlayer.setShowBatteryStatus(hideAOD && !hideAODFully);'''
+new = '''                spritePlayer.setDrawBackground(hideAOD);
+                spritePlayer.setShowBatteryStatus(false);'''
+if old not in t:
+    raise SystemExit("experimental draw-background handoff not found")
+t = t.replace(old, new, 1)
+
+anim.write_text(t, encoding="utf-8")
+
+# --- Dedicated battery overlay window owned by Overlay / WindowManager.
+overlay = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/Overlay.java")
+t = overlay.read_text(encoding="utf-8")
+
+needle = '''    private boolean added = false;
+    private final ResolutionTracker resolutionTracker;'''
+replacement = '''    private boolean added = false;
+
+    // Independent bottom battery window. Keeping this out of SpritePlayer is
+    // essential: the main Holey Light window intentionally stops above the
+    // Samsung fingerprint region in partial-AOD mode.
+    private android.widget.LinearLayout batteryOverlay = null;
+    private android.widget.TextView batteryOverlayText = null;
+    private android.widget.ProgressBar batteryOverlayProgress = null;
+    private boolean batteryOverlayAdded = false;
+
+    private final ResolutionTracker resolutionTracker;'''
+if needle not in t:
+    raise SystemExit("Overlay battery fields anchor not found")
+t = t.replace(needle, replacement, 1)
+
+needle = '''    private void updateParams() {
+        if (terminated) return;
+        animation.applyDimensions();
+    }
+
+    private void createOverlay() {'''
+methods = '''    private int dp(float value) {
+        return Math.round(android.util.TypedValue.applyDimension(
+                android.util.TypedValue.COMPLEX_UNIT_DIP,
+                value,
+                spritePlayer.getContext().getResources().getDisplayMetrics()
+        ));
+    }
+
+    private void ensureBatteryOverlay(Context context) {
+        if (batteryOverlay != null) return;
+
+        batteryOverlay = new android.widget.LinearLayout(context);
+        batteryOverlay.setOrientation(android.widget.LinearLayout.VERTICAL);
+        batteryOverlay.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+        batteryOverlay.setPadding(0, 0, 0, 0);
+        batteryOverlay.setBackgroundColor(Color.TRANSPARENT);
+
+        batteryOverlayText = new android.widget.TextView(context);
+        batteryOverlayText.setTextColor(Color.WHITE);
+        batteryOverlayText.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11f);
+        batteryOverlayText.setGravity(android.view.Gravity.CENTER);
+        batteryOverlayText.setIncludeFontPadding(false);
+        batteryOverlay.addView(
+                batteryOverlayText,
+                new android.widget.LinearLayout.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+        );
+
+        batteryOverlayProgress = new android.widget.ProgressBar(
+                context,
+                null,
+                android.R.attr.progressBarStyleHorizontal
+        );
+        batteryOverlayProgress.setIndeterminate(false);
+        batteryOverlayProgress.setMax(100);
+        batteryOverlayProgress.setProgressTintList(
+                android.content.res.ColorStateList.valueOf(Color.WHITE)
+        );
+        batteryOverlayProgress.setProgressBackgroundTintList(
+                android.content.res.ColorStateList.valueOf(0x44FFFFFF)
+        );
+
+        android.widget.LinearLayout.LayoutParams barParams =
+                new android.widget.LinearLayout.LayoutParams(dp(145f), Math.max(2, dp(3f)));
+        barParams.topMargin = dp(5f);
+        batteryOverlay.addView(batteryOverlayProgress, barParams);
+    }
+
+    private void showBatteryOverlay(Context context) {
+        if (terminated) return;
+        ensureBatteryOverlay(context);
+
+        android.os.BatteryManager bm =
+                (android.os.BatteryManager)context.getSystemService(Context.BATTERY_SERVICE);
+        int level = bm == null
+                ? -1
+                : bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY);
+        if (level < 0 || level > 100) {
+            hideBatteryOverlay();
+            return;
+        }
+
+        batteryOverlayText.setText(level + "%");
+        batteryOverlayProgress.setProgress(level);
+
+        if (batteryOverlayAdded) return;
+
+        WindowManager.LayoutParams p = new WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.WRAP_CONTENT,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                  WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT
+        );
+        p.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
+        // Positive y with BOTTOM gravity lifts the view slightly from the edge.
+        // This stays below the S24 ultrasonic fingerprint target.
+        p.y = dp(44f);
+        p.setTitle("HoleyLight S24 Battery");
+        if (windowToken != null) p.token = windowToken;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            p.layoutInDisplayCutoutMode =
+                    (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R)
+                            ? WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                            : WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+        }
+
+        try {
+            windowManager.addView(batteryOverlay, p);
+            batteryOverlayAdded = true;
+        } catch (Exception e) {
+            e.printStackTrace();
+            batteryOverlayAdded = false;
+        }
+    }
+
+    private void hideBatteryOverlay() {
+        if (!batteryOverlayAdded || batteryOverlay == null) return;
+        try {
+            windowManager.removeView(batteryOverlay);
+        } catch (Exception ignored) {
+        }
+        batteryOverlayAdded = false;
+    }
+
+    private void updateParams() {
+        if (terminated) return;
+        animation.applyDimensions();
+    }
+
+    private void createOverlay() {'''
+if needle not in t:
+    raise SystemExit("Overlay battery methods anchor not found")
+t = t.replace(needle, methods, 1)
+
+# Update/show the independent battery window on each state evaluation.
+needle = '''        boolean hideAODEffective = activeHide || isHideAODAndDoze;
+
+        if (forceRefresh) log("Force refresh");'''
+replacement = '''        boolean hideAODEffective = activeHide || isHideAODAndDoze;
+
+        boolean showS24Battery =
+                settings.isHideAOD() &&
+                !settings.isHideAODFully() &&
+                !on;
+        if (showS24Battery) {
+            showBatteryOverlay(context);
+        } else {
+            hideBatteryOverlay();
+        }
+
+        if (forceRefresh) log("Force refresh");'''
+if needle not in t:
+    raise SystemExit("Overlay battery evaluation anchor not found")
+t = t.replace(needle, replacement, 1)
+
+# Always remove the independent battery window during shutdown.
+old = '''            if (animation.isPlaying()) animation.stop(true);
+            removeOverlay();
+            animation = null;'''
+new = '''            if (animation.isPlaying()) animation.stop(true);
+            removeOverlay();
+            hideBatteryOverlay();
+            animation = null;'''
+if old not in t:
+    raise SystemExit("Overlay shutdown battery cleanup anchor not found")
+t = t.replace(old, new, 1)
+
+overlay.write_text(t, encoding="utf-8")
+
+print("Restored fingerprint-safe partial AOD and moved battery to independent window")
