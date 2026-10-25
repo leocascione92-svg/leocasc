@@ -806,3 +806,304 @@ t = t.replace(anchor, insert, 1)
 frag.write_text(t, encoding="utf-8")
 
 print("Clarified AOD profiles, added in-overlay battery status, and exposed effect pickers")
+
+
+# 18) Procedural S24 effects: Comet, Breath, Orbit + live preview.
+sprite = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/SpritePlayer.java")
+t = sprite.read_text(encoding="utf-8")
+
+old = "public enum Mode { SWIRL, SWIRL_SLOW, SWIRL_FAST, BLINK, BLINK_SOFT, SINGLE, TSP, TSP_HIDE }"
+new = "public enum Mode { SWIRL, SWIRL_SLOW, SWIRL_FAST, COMET, BREATH, ORBIT, BLINK, BLINK_SOFT, SINGLE, TSP, TSP_HIDE }"
+if old not in t:
+    raise SystemExit("procedural Mode enum anchor not found")
+t = t.replace(old, new, 1)
+
+needle = '''    private final Paint paintBattery = new Paint();
+    private final Paint paintBatteryTrack = new Paint();
+    private volatile boolean showBatteryStatus = false;'''
+replacement = '''    private final Paint paintBattery = new Paint();
+    private final Paint paintBatteryTrack = new Paint();
+    private final Paint paintProcedural = new Paint();
+    private volatile boolean showBatteryStatus = false;'''
+if needle not in t:
+    raise SystemExit("procedural paint field anchor not found")
+t = t.replace(needle, replacement, 1)
+
+needle = '''        paintBatteryTrack.setAntiAlias(true);
+        paintBatteryTrack.setColor(0x55FFFFFF);
+
+        handlerRender.post(() -> {'''
+replacement = '''        paintBatteryTrack.setAntiAlias(true);
+        paintBatteryTrack.setColor(0x55FFFFFF);
+
+        paintProcedural.setAntiAlias(true);
+        paintProcedural.setDither(true);
+        paintProcedural.setStrokeCap(Paint.Cap.ROUND);
+
+        handlerRender.post(() -> {'''
+if needle not in t:
+    raise SystemExit("procedural paint init anchor not found")
+t = t.replace(needle, replacement, 1)
+
+needle = '''    private final Choreographer.FrameCallback frameCallback = new Choreographer.FrameCallback() {'''
+method = '''    private void renderProceduralFrame(Canvas canvas, long diff) {
+        if (drawBackground) {
+            canvas.drawColor(Color.BLACK, PorterDuff.Mode.SRC);
+        } else if (!canvas.isHardwareAccelerated()) {
+            canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
+        }
+
+        int[] activeColors = ((colors != null) && (colors.length > 0)) ? colors : new int[] { Color.WHITE };
+        float cx = width / 2f;
+        float cy = height / 2f;
+        float radius = Math.max(2f * dpToPx, Math.min(width, height) / 2f - (4f * dpToPx));
+        float safeSpeed = Math.max(0.15f, speed);
+
+        paintProcedural.setShader(null);
+        paintProcedural.setColorFilter(null);
+
+        if (drawMode == Mode.COMET) {
+            float cycle = 1700f / safeSpeed;
+            float phase = ((diff % (long)Math.max(1f, cycle)) / cycle) * 360f;
+            paintProcedural.setStyle(Paint.Style.STROKE);
+            paintProcedural.setStrokeWidth(3.2f * dpToPx);
+            for (int i = 0; i < 9; i++) {
+                int alpha = Math.max(18, 255 - (i * 27));
+                int c = activeColors[i % activeColors.length];
+                paintProcedural.setColor((c & 0x00FFFFFF) | (alpha << 24));
+                float start = phase - (i * 8f);
+                canvas.drawArc(cx - radius, cy - radius, cx + radius, cy + radius, start, 20f, false, paintProcedural);
+            }
+            double head = Math.toRadians(phase + 20f);
+            paintProcedural.setStyle(Paint.Style.FILL);
+            paintProcedural.setColor(activeColors[0]);
+            canvas.drawCircle(
+                    cx + ((float)Math.cos(head) * radius),
+                    cy + ((float)Math.sin(head) * radius),
+                    3.4f * dpToPx,
+                    paintProcedural
+            );
+        } else if (drawMode == Mode.BREATH) {
+            float cycle = 2300f / safeSpeed;
+            float part = (diff % (long)Math.max(1f, cycle)) / cycle;
+            float wave = 0.5f + 0.5f * (float)Math.sin((part * Math.PI * 2.0) - (Math.PI / 2.0));
+            int alpha = 60 + Math.round(195f * wave);
+            float breatheRadius = radius - ((1f - wave) * 2.5f * dpToPx);
+            paintProcedural.setStyle(Paint.Style.STROKE);
+            paintProcedural.setStrokeWidth((2.0f + (3.4f * wave)) * dpToPx);
+            int c = activeColors[0];
+            paintProcedural.setColor((c & 0x00FFFFFF) | (alpha << 24));
+            canvas.drawCircle(cx, cy, breatheRadius, paintProcedural);
+        } else if (drawMode == Mode.ORBIT) {
+            float cycle = 1850f / safeSpeed;
+            float phase = ((diff % (long)Math.max(1f, cycle)) / cycle) * 360f;
+            paintProcedural.setStyle(Paint.Style.FILL);
+            final int dots = 4;
+            for (int i = 0; i < dots; i++) {
+                float angle = phase + ((360f / dots) * i);
+                double rad = Math.toRadians(angle);
+                int c = activeColors[i % activeColors.length];
+                int alpha = 255 - (i * 35);
+                paintProcedural.setColor((c & 0x00FFFFFF) | (alpha << 24));
+                float dotR = (i == 0 ? 3.8f : 2.7f) * dpToPx;
+                canvas.drawCircle(
+                        cx + ((float)Math.cos(rad) * radius),
+                        cy + ((float)Math.sin(rad) * radius),
+                        dotR,
+                        paintProcedural
+                );
+            }
+        }
+    }
+
+''' + needle
+if needle not in t:
+    raise SystemExit("frame callback anchor not found")
+t = t.replace(needle, method, 1)
+
+needle = '''                    if (isTSPMode()) {
+                        boolean draw;'''
+# leave TSP start unchanged; insert procedural branch before spriteSheet-null branch later.
+if needle not in t:
+    raise SystemExit("TSP frame branch anchor not found")
+
+needle = '''                    } else if (spriteSheet == null) { // still loading'''
+replacement = '''                    } else if (isProceduralMode()) {
+                        boolean doDraw = true;
+                        if (onAnimationListener != null) {
+                            doDraw = onAnimationListener.onAnimationFrameStart(true);
+                        }
+                        if (doDraw) {
+                            Canvas canvas = surfaceView.getHolder().lockCanvas();
+                            if (canvas != null) {
+                                try {
+                                    renderProceduralFrame(canvas, diff);
+                                } finally {
+                                    try {
+                                        surfaceView.getHolder().unlockCanvasAndPost(canvas);
+                                    } catch (IllegalStateException e) {
+                                        // no action
+                                    }
+                                }
+                            }
+                        }
+                        if (onAnimationListener != null) {
+                            onAnimationListener.onAnimationFrameEnd(doDraw);
+                        }
+                    } else if (spriteSheet == null) { // still loading'''
+if needle not in t:
+    raise SystemExit("procedural frame insertion anchor not found")
+t = t.replace(needle, replacement, 1)
+
+old = '''            if (wanted && ((getSpriteSheet() != null) || (spriteSheetLoading > 0) || isTSPMode()) && (getWindowVisibility() == View.VISIBLE) && (getVisibility() == View.VISIBLE)) {'''
+new = '''            if (wanted && ((getSpriteSheet() != null) || (spriteSheetLoading > 0) || isTSPMode() || isProceduralMode()) && (getWindowVisibility() == View.VISIBLE) && (getVisibility() == View.VISIBLE)) {'''
+if old not in t:
+    raise SystemExit("procedural evaluate anchor not found")
+t = t.replace(old, new, 1)
+
+needle = '''    public boolean isTSPMode() {
+        return isTSPMode(drawMode);
+    }'''
+replacement = '''    public boolean isProceduralMode() {
+        return isProceduralMode(drawMode);
+    }
+
+    public boolean isProceduralMode(Mode mode) {
+        return (mode == Mode.COMET) || (mode == Mode.BREATH) || (mode == Mode.ORBIT);
+    }
+
+    public boolean isTSPMode() {
+        return isTSPMode(drawMode);
+    }'''
+if needle not in t:
+    raise SystemExit("procedural helper anchor not found")
+t = t.replace(needle, replacement, 1)
+
+old = '''    public boolean isMultiColorMode(Mode mode) {
+        return (mode == Mode.SINGLE) || isTSPMode(mode);
+    }'''
+new = '''    public boolean isMultiColorMode(Mode mode) {
+        return (mode == Mode.SINGLE) || isTSPMode(mode) || isProceduralMode(mode);
+    }'''
+if old not in t:
+    raise SystemExit("procedural multicolor anchor not found")
+t = t.replace(old, new, 1)
+
+sprite.write_text(t, encoding="utf-8")
+
+# Persist the new modes and give them labels.
+settings_file = Path("upstream/app/src/main/java/eu/chainfire/holeylight/misc/Settings.java")
+t = settings_file.read_text(encoding="utf-8")
+needle = '''            new AnimationStyle("swirl_fast", SpritePlayer.Mode.SWIRL_FAST, R.string.animation_style_swirl_fast_title, R.string.animation_style_location_camera, 5.5f),
+            new AnimationStyle("blink_soft", SpritePlayer.Mode.BLINK_SOFT, R.string.animation_style_blink_soft_title, R.string.animation_style_location_camera, 3.5f),'''
+replacement = '''            new AnimationStyle("swirl_fast", SpritePlayer.Mode.SWIRL_FAST, R.string.animation_style_swirl_fast_title, R.string.animation_style_location_camera, 5.5f),
+            new AnimationStyle("comet", SpritePlayer.Mode.COMET, R.string.animation_style_comet_title, R.string.animation_style_location_camera, 4.5f),
+            new AnimationStyle("breath", SpritePlayer.Mode.BREATH, R.string.animation_style_breath_title, R.string.animation_style_location_camera, 3.0f),
+            new AnimationStyle("orbit", SpritePlayer.Mode.ORBIT, R.string.animation_style_orbit_title, R.string.animation_style_location_camera, 4.0f),
+            new AnimationStyle("blink_soft", SpritePlayer.Mode.BLINK_SOFT, R.string.animation_style_blink_soft_title, R.string.animation_style_location_camera, 3.5f),'''
+if needle not in t:
+    raise SystemExit("procedural animation style table anchor not found")
+t = t.replace(needle, replacement, 1)
+settings_file.write_text(t, encoding="utf-8")
+
+for rel, strings in [
+    ("upstream/app/src/main/res/values/strings.xml", [
+        ("animation_style_comet_title", "Comet"),
+        ("animation_style_breath_title", "Breathing ring"),
+        ("animation_style_orbit_title", "Orbit"),
+    ]),
+    ("upstream/app/src/main/res/values-it/strings.xml", [
+        ("animation_style_comet_title", "Cometa"),
+        ("animation_style_breath_title", "Respiro"),
+        ("animation_style_orbit_title", "Orbit"),
+    ]),
+]:
+    p = Path(rel)
+    txt = p.read_text(encoding="utf-8")
+    if "animation_style_comet_title" not in txt:
+        block = "\n" + "\n".join([f'    <string name="{k}">{v}</string>' for k, v in strings]) + "\n"
+        txt = txt.replace("</resources>", block + "</resources>")
+        p.write_text(txt, encoding="utf-8")
+
+# Overlay preview: preview selected effect for ~2.2 s while the settings screen is open.
+overlay = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/Overlay.java")
+t = overlay.read_text(encoding="utf-8")
+needle = '''    public void show(int[] colors, Drawable[] icons, boolean forceRefresh) {'''
+preview = '''    public void preview(SpritePlayer.Mode previewMode) {
+        if (terminated || animation == null) return;
+        handler.removeCallbacks(evaluateLoop);
+        animation.setMode(previewMode, false);
+        animation.setShowAODClock(false, false);
+        animation.setHideAOD(false, false);
+        animation.setDoze(false);
+        createOverlay();
+        animation.play(new int[] { Color.WHITE }, new Drawable[0], false, true);
+        handler.postDelayed(() -> {
+            if (terminated || animation == null) return;
+            animation.stop(true);
+            removeOverlay();
+            forceRefresh = true;
+            evaluate(true);
+        }, 2200);
+    }
+
+''' + needle
+if needle not in t:
+    raise SystemExit("Overlay preview anchor not found")
+t = t.replace(needle, preview, 1)
+overlay.write_text(t, encoding="utf-8")
+
+# Expose procedural modes in the clear screen-on/off effect pickers and preview on selection.
+frag = Path("upstream/app/src/main/java/eu/chainfire/holeylight/ui/SettingsFragment.java")
+t = frag.read_text(encoding="utf-8")
+
+old = '''                    SpritePlayer.Mode.SWIRL_FAST,
+                    SpritePlayer.Mode.BLINK_SOFT,
+                    SpritePlayer.Mode.BLINK,
+                    SpritePlayer.Mode.SINGLE
+            };'''
+new = '''                    SpritePlayer.Mode.SWIRL_FAST,
+                    SpritePlayer.Mode.COMET,
+                    SpritePlayer.Mode.BREATH,
+                    SpritePlayer.Mode.ORBIT,
+                    SpritePlayer.Mode.BLINK_SOFT,
+                    SpritePlayer.Mode.BLINK,
+                    SpritePlayer.Mode.SINGLE
+            };'''
+if old not in t:
+    raise SystemExit("screen-on procedural picker anchor not found")
+t = t.replace(old, new, 1)
+
+old = '''                    SpritePlayer.Mode.SWIRL_FAST,
+                    SpritePlayer.Mode.BLINK_SOFT,
+                    SpritePlayer.Mode.BLINK,
+                    SpritePlayer.Mode.SINGLE,
+                    SpritePlayer.Mode.TSP
+            };'''
+new = '''                    SpritePlayer.Mode.SWIRL_FAST,
+                    SpritePlayer.Mode.COMET,
+                    SpritePlayer.Mode.BREATH,
+                    SpritePlayer.Mode.ORBIT,
+                    SpritePlayer.Mode.BLINK_SOFT,
+                    SpritePlayer.Mode.BLINK,
+                    SpritePlayer.Mode.SINGLE,
+                    SpritePlayer.Mode.TSP
+            };'''
+if old not in t:
+    raise SystemExit("screen-off procedural picker anchor not found")
+t = t.replace(old, new, 1)
+
+old = '''                        preference.setSummary(getString(settings.getAnimationStyle(selected).title));
+                    })'''
+new = '''                        preference.setSummary(getString(settings.getAnimationStyle(selected).title));
+                        eu.chainfire.holeylight.animation.Overlay overlay = eu.chainfire.holeylight.animation.Overlay.getInstance();
+                        if (overlay != null) overlay.preview(selected);
+                    })'''
+count = t.count(old)
+if count < 2:
+    raise SystemExit("effect picker preview anchors not found")
+t = t.replace(old, new, 2)
+
+frag.write_text(t, encoding="utf-8")
+
+print("Added procedural Comet/Breath/Orbit effects with live preview")
