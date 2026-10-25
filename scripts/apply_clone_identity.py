@@ -2221,3 +2221,133 @@ t = t.replace(anchor, block, 1)
 frag.write_text(t, encoding="utf-8")
 
 print("Added ColorChase/ArcSweep/Spark, presets and per-app effects")
+
+
+# 22) S24 AOD stability: eliminate ghost pixels and make partial AOD masking sticky.
+# This pass is intentionally stability-only.
+
+# --- Always clear procedural SurfaceView buffers before drawing.
+# Some Samsung/Android 16 SurfaceView paths retain tiny fragments of the previous
+# frame even on an accelerated canvas, causing white "ghost pixels" near the cutout.
+sprite = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/SpritePlayer.java")
+t = sprite.read_text(encoding="utf-8")
+
+old = '''    private void renderProceduralFrame(Canvas canvas, long diff) {
+        if (drawBackground) {
+            canvas.drawColor(Color.BLACK, PorterDuff.Mode.SRC);
+        } else if (!canvas.isHardwareAccelerated()) {
+            canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
+        }
+
+        int[] activeColors ='''
+new = '''    private void renderProceduralFrame(Canvas canvas, long diff) {
+        // Explicitly clear every frame. On the S24 / Android 16 the SurfaceView
+        // buffer is not always pristine even when Canvas reports hardware acceleration.
+        if (drawBackground) {
+            canvas.drawColor(Color.BLACK, PorterDuff.Mode.SRC);
+        } else {
+            canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR);
+        }
+
+        int[] activeColors ='''
+if old not in t:
+    raise SystemExit("procedural clear anchor not found")
+t = t.replace(old, new, 1)
+
+# TSP_HIDE must always paint a pristine black frame. This is the no-notification
+# state used by the S24 AOD profiles; never allow a previous notification frame
+# to remain in its SurfaceView buffer.
+old = '''        if (Settings.DEBUG_OVERLAY) canvas.drawColor(0x80808080);
+
+        // S24 partial-AOD profile: Holey Light owns the battery indicator so it'''
+new = '''        if (drawMode == Mode.TSP_HIDE) {
+            canvas.drawColor(Color.BLACK, PorterDuff.Mode.SRC);
+        }
+
+        if (Settings.DEBUG_OVERLAY) canvas.drawColor(0x80808080);
+
+        // S24 partial-AOD profile: Holey Light owns the battery indicator so it'''
+if old not in t:
+    raise SystemExit("TSP_HIDE clean-frame anchor not found")
+t = t.replace(old, new, 1)
+
+# When changing between an effect and TSP_HIDE, force the next frame to redraw
+# immediately rather than waiting for the periodic TSP cadence.
+old = '''            if (redraw) {
+                surfaceInvalidated = true;
+                evaluate();
+            }'''
+new = '''            if (redraw) {
+                surfaceInvalidated = true;
+                evaluate();
+                if (draw && (drawMode == Mode.TSP_HIDE)) {
+                    callNextFrame(true);
+                }
+            }'''
+if old not in t:
+    raise SystemExit("TSP_HIDE immediate redraw anchor not found")
+t = t.replace(old, new, 1)
+
+sprite.write_text(t, encoding="utf-8")
+
+# --- Make Hide-AOD independent of the transient Samsung AOD schedule state.
+overlay = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/Overlay.java")
+t = overlay.read_text(encoding="utf-8")
+
+old = '''        if (!visible && allowHideAOD && settings.isHideAOD() && inAODSchedule) {
+            // we will be visible soon
+            visible = true;
+            doze = true;
+        }'''
+new = '''        if (!visible && allowHideAOD && settings.isHideAOD()) {
+            // S24 / One UI can report AOD schedule/doze state late during SCREEN_OFF.
+            // The selected Holey Light AOD profile must remain authoritative during
+            // that transition, otherwise the full Samsung AOD can flash or remain visible.
+            visible = true;
+            doze = true;
+        }'''
+if old not in t:
+    raise SystemExit("sticky AOD visibility anchor not found")
+t = t.replace(old, new, 1)
+
+# Re-assert the overlay a few times while One UI establishes doze/AOD.
+# This is deliberately bounded (no permanent polling).
+old = '''                case Intent.ACTION_SCREEN_OFF:
+                    if (settings.isHideAOD()) {
+                        // without AOD we might immediately go to sleep, give us some time to setup
+                        pokeWakeLocks(10000);
+                    }
+                    evaluate(true);
+                    break;'''
+new = '''                case Intent.ACTION_SCREEN_OFF:
+                    if (settings.isHideAOD()) {
+                        // One UI 8 / Android 16 establishes AOD in several asynchronous
+                        // phases. Keep enough CPU/draw time to establish our mask and
+                        // re-assert it after Samsung updates its own AOD surface.
+                        pokeWakeLocks(10000);
+                        evaluate(true);
+                        handler.postDelayed(() -> evaluate(true), 250);
+                        handler.postDelayed(() -> evaluate(true), 750);
+                        handler.postDelayed(() -> evaluate(true), 1500);
+                        handler.postDelayed(() -> evaluate(true), 3000);
+                    } else {
+                        evaluate(true);
+                    }
+                    break;'''
+if old not in t:
+    raise SystemExit("SCREEN_OFF AOD stabilization anchor not found")
+t = t.replace(old, new, 1)
+
+# While Hide AOD is active, keep the no-notification mask alive regardless of a
+# momentary false schedule report. Still respect the master enabled switch.
+old = '''        boolean wantedEffective = (wanted || activeHide) && settings.isEnabledWhile(mode) && lockscreenOk;'''
+new = '''        boolean wantedEffective =
+                (wanted && settings.isEnabledWhile(mode) && lockscreenOk) ||
+                (activeHide && settings.isEnabled());'''
+if old not in t:
+    raise SystemExit("activeHide persistence anchor not found")
+t = t.replace(old, new, 1)
+
+overlay.write_text(t, encoding="utf-8")
+
+print("Applied S24 ghost-pixel cleanup and sticky AOD masking")
