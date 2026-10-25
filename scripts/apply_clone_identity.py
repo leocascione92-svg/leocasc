@@ -175,3 +175,25 @@ if needle not in t:
 main.write_text(t.replace(needle, replacement, 1), encoding="utf-8")
 
 print("Added direct vortex renderer diagnostic")
+
+
+# 12) Fix accessibility detection when original Holey Light and clone coexist.
+# The upstream fallback only searches for the Java service class name, so an
+# enabled original installation can make the clone falsely believe its own
+# accessibility service is enabled.
+permissions = Path("upstream/app/src/main/java/eu/chainfire/holeylight/misc/Permissions.java")
+t = permissions.read_text(encoding="utf-8")
+old = '''                String name = AccessibilityService.class.getCanonicalName();
+                if ((services != null) && (name != null) && (services.contains(name))) {
+                    return accessibilityManager.isEnabled();
+                }'''
+new = '''                String name = AccessibilityService.class.getCanonicalName();
+                String component = (name == null) ? null : (BuildConfig.APPLICATION_ID + "/" + name);
+                if ((services != null) && (component != null) && services.contains(component)) {
+                    return accessibilityManager.isEnabled();
+                }'''
+if old not in t:
+    raise SystemExit("accessibility fallback block not found")
+permissions.write_text(t.replace(old, new, 1), encoding="utf-8")
+
+print("Fixed clone-vs-original accessibility service detection")
