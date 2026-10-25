@@ -2351,3 +2351,173 @@ t = t.replace(old, new, 1)
 overlay.write_text(t, encoding="utf-8")
 
 print("Applied S24 ghost-pixel cleanup and sticky AOD masking")
+
+
+# 23) Fix S24 battery placement: battery UI must NOT be drawn inside the
+# camera SurfaceView. Move it to a dedicated bottom-of-screen child layer.
+sprite = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/SpritePlayer.java")
+t = sprite.read_text(encoding="utf-8")
+
+# Remove the old battery drawing block from renderFrame(). That SurfaceView is
+# normally only the camera/cutout area, which is why the percentage/bar appeared
+# as white garbage pixels around the punch-hole.
+start = t.find('''        // S24 partial-AOD profile: Holey Light owns the battery indicator so it''')
+if start == -1:
+    raise SystemExit("old in-canvas battery block start not found")
+end = t.find('''        if (isTSPMode()) {''', start)
+if end == -1:
+    raise SystemExit("old in-canvas battery block end not found")
+t = t[:start] + t[end:]
+
+# Dedicated battery UI fields.
+needle = '''    private volatile boolean showBatteryStatus = false;
+    private final float dpToPx;'''
+replacement = '''    private volatile boolean showBatteryStatus = false;
+    private android.widget.LinearLayout batteryContainer;
+    private android.widget.TextView batteryText;
+    private android.widget.ProgressBar batteryProgress;
+    private final float dpToPx;'''
+if needle not in t:
+    raise SystemExit("battery UI fields anchor not found")
+t = t.replace(needle, replacement, 1)
+
+# Create the battery UI as a sibling of the camera SurfaceView.
+needle = '''        surfaceView.setLayoutParams(new RelativeLayout.LayoutParams(params));
+        addView(surfaceView);
+
+        while (choreographer == null) {'''
+replacement = '''        surfaceView.setLayoutParams(new RelativeLayout.LayoutParams(params));
+        addView(surfaceView);
+
+        batteryContainer = new android.widget.LinearLayout(context);
+        batteryContainer.setOrientation(android.widget.LinearLayout.VERTICAL);
+        batteryContainer.setGravity(android.view.Gravity.CENTER_HORIZONTAL);
+        batteryContainer.setVisibility(View.GONE);
+
+        batteryText = new android.widget.TextView(context);
+        batteryText.setTextColor(Color.WHITE);
+        batteryText.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11f);
+        batteryText.setGravity(android.view.Gravity.CENTER);
+        batteryText.setIncludeFontPadding(false);
+        batteryContainer.addView(
+                batteryText,
+                new android.widget.LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.WRAP_CONTENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+        );
+
+        batteryProgress = new android.widget.ProgressBar(
+                context,
+                null,
+                android.R.attr.progressBarStyleHorizontal
+        );
+        batteryProgress.setIndeterminate(false);
+        batteryProgress.setMax(100);
+        batteryProgress.setProgressTintList(
+                android.content.res.ColorStateList.valueOf(Color.WHITE)
+        );
+        batteryProgress.setProgressBackgroundTintList(
+                android.content.res.ColorStateList.valueOf(0x44FFFFFF)
+        );
+        android.widget.LinearLayout.LayoutParams batteryBarParams =
+                new android.widget.LinearLayout.LayoutParams(
+                        Math.round(145f * dpToPx),
+                        Math.max(2, Math.round(3f * dpToPx))
+                );
+        batteryBarParams.topMargin = Math.round(5f * dpToPx);
+        batteryContainer.addView(batteryProgress, batteryBarParams);
+
+        RelativeLayout.LayoutParams batteryContainerParams =
+                new RelativeLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
+                );
+        batteryContainerParams.addRule(RelativeLayout.ALIGN_PARENT_BOTTOM);
+        // On the S24 this places battery information below the fingerprint area.
+        batteryContainerParams.bottomMargin = Math.round(52f * dpToPx);
+        batteryContainer.setLayoutParams(batteryContainerParams);
+        addView(batteryContainer);
+
+        while (choreographer == null) {'''
+if needle not in t:
+    raise SystemExit("battery UI constructor anchor not found")
+t = t.replace(needle, replacement, 1)
+
+# Replace setter so it updates the dedicated view every time dimensions/state
+# are applied, even if visibility is already true.
+old = '''    public void setShowBatteryStatus(boolean value) {
+        synchronized (sync) {
+            if (showBatteryStatus != value) {
+                showBatteryStatus = value;
+                surfaceInvalidated = true;
+                if (draw) callNextFrame(true);
+            }
+        }
+    }'''
+new = '''    public void setShowBatteryStatus(boolean value) {
+        synchronized (sync) {
+            showBatteryStatus = value;
+            handlerMain.post(() -> {
+                if (batteryContainer == null) return;
+                if (!value) {
+                    batteryContainer.setVisibility(View.GONE);
+                    return;
+                }
+
+                android.os.BatteryManager bm =
+                        (android.os.BatteryManager)getContext().getSystemService(Context.BATTERY_SERVICE);
+                int level = bm == null
+                        ? -1
+                        : bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY);
+
+                if (level < 0 || level > 100) {
+                    batteryContainer.setVisibility(View.GONE);
+                } else {
+                    batteryText.setText(level + "%");
+                    batteryProgress.setProgress(level);
+                    batteryContainer.setVisibility(View.VISIBLE);
+                    batteryContainer.bringToFront();
+                }
+            });
+
+            surfaceInvalidated = true;
+            if (draw) callNextFrame(true);
+        }
+    }'''
+if old not in t:
+    raise SystemExit("battery UI setter anchor not found")
+t = t.replace(old, new, 1)
+
+sprite.write_text(t, encoding="utf-8")
+
+# The fingerprint is rendered by Samsung above the accessibility overlay even
+# when the mask is full-screen. Use a full-screen black mask for both hidden-AOD
+# profiles so our battery child can live BELOW the fingerprint rather than inside
+# the camera region. Full vs partial is now expressed by battery visibility.
+anim = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/NotificationAnimation.java")
+t = anim.read_text(encoding="utf-8")
+
+old = '''                    int bottom = resolution.y;
+                    if (!hideAODFully) {
+                        bottom = (int)(resolution.y * 0.75f);
+                        if (Build.VERSION.SDK_INT >= 30) {
+                            if (tspOverlayBottom > 0) {
+                                bottom = Math.max(tspRect.bottom, tspOverlayBottom);
+                            } else if (tspRect.bottom > 0) {
+                                bottom = tspRect.bottom;
+                            }
+                        }
+                    }
+                    update.set(0, 0, resolution.x, bottom);'''
+new = '''                    // S24 clone: use a full-screen mask. One UI's fingerprint
+                    // remains visible above the accessibility overlay, while the
+                    // Holey Light battery widget is positioned independently below it.
+                    update.set(0, 0, resolution.x, resolution.y);'''
+if old not in t:
+    raise SystemExit("partial AOD height anchor not found")
+t = t.replace(old, new, 1)
+
+anim.write_text(t, encoding="utf-8")
+
+print("Moved S24 battery UI below fingerprint and out of camera SurfaceView")
