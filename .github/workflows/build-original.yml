@@ -29,8 +29,9 @@ jobs:
 
       - name: Install Android SDK 31 using runner SDK
         run: |
-          yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platforms;android-31" "build-tools;31.0.0"
+          SDKMANAGER="/usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platforms;android-31" "build-tools;31.0.0"
 
       - name: Switch to Java 8 for legacy Gradle build
         uses: actions/setup-java@v5
