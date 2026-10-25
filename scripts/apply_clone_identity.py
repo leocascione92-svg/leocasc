@@ -269,13 +269,8 @@ if old not in t:
 t = t.replace(old, new, 1)
 frag.write_text(t, encoding="utf-8")
 
-# 15) Remove billing dependency from the clone build. Donation UI is gone, so
-# billing should not initialize or pull Google Billing into the APK.
-gradle = Path("upstream/app/build.gradle")
-t = gradle.read_text(encoding="utf-8")
-t = t.replace("    implementation 'com.android.billingclient:billing:5.1.0'\n", "")
-gradle.write_text(t, encoding="utf-8")
-
+# 15) Donation UI is removed and the billing connector is no longer scheduled.
+# Keep the dependency for source compatibility in this pass.
 main = Path("upstream/app/src/main/java/eu/chainfire/holeylight/ui/MainActivity.java")
 t = main.read_text(encoding="utf-8")
 
