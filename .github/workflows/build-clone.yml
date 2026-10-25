@@ -84,17 +84,57 @@ jobs:
           java -version
           ./gradlew --version
 
-      - name: Sign release with disposable debug key
+      - name: Configure release signing
         working-directory: upstream
+        env:
+          HOLEY_KEYSTORE_B64: ${{ secrets.HOLEY_KEYSTORE_B64 }}
+          HOLEY_STORE_PASSWORD: ${{ secrets.HOLEY_STORE_PASSWORD }}
+          HOLEY_KEY_ALIAS: ${{ secrets.HOLEY_KEY_ALIAS }}
+          HOLEY_KEY_PASSWORD: ${{ secrets.HOLEY_KEY_PASSWORD }}
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import re
+          import os, re, base64
 
           p = Path("app/build.gradle")
           s = p.read_text()
+
+          have_stable = all(os.environ.get(k) for k in [
+              "HOLEY_KEYSTORE_B64",
+              "HOLEY_STORE_PASSWORD",
+              "HOLEY_KEY_ALIAS",
+              "HOLEY_KEY_PASSWORD",
+          ])
+
+          if have_stable:
+              signing_dir = Path("signing")
+              signing_dir.mkdir(exist_ok=True)
+              (signing_dir / "holeylight-s24.jks").write_bytes(
+                  base64.b64decode(os.environ["HOLEY_KEYSTORE_B64"])
+              )
+
+              anchor = "android {\n"
+              signing = """android {
+    signingConfigs {
+        stableRelease {
+            storeFile file("signing/holeylight-s24.jks")
+            storePassword System.getenv("HOLEY_STORE_PASSWORD")
+            keyAlias System.getenv("HOLEY_KEY_ALIAS")
+            keyPassword System.getenv("HOLEY_KEY_PASSWORD")
+        }
+    }
+"""
+              if anchor not in s:
+                  raise SystemExit("android block not found")
+              s = s.replace(anchor, signing, 1)
+              config = "signingConfigs.stableRelease"
+              print("Using stable release signing from GitHub Secrets")
+          else:
+              config = "signingConfigs.debug"
+              print("Stable signing Secrets not configured; using disposable debug signing")
+
           pattern = r"(release\s*\{\s*\n)(\s*)minifyEnabled true"
-          replacement = r"\1\2signingConfig signingConfigs.debug\n\2minifyEnabled true"
+          replacement = r"\1\2signingConfig " + config + r"\n\2minifyEnabled true"
           s2, n = re.subn(pattern, replacement, s, count=1)
           if n != 1:
               raise SystemExit("release buildType insertion point not found")
