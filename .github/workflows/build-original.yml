@@ -21,17 +21,23 @@ jobs:
           ref: cd767e7cb7b53daf1f31558618e0896177a19612
           path: upstream
 
-      - name: Set up Java 8
-        uses: actions/setup-java@v4
+      - name: Set up Java 17 for Android SDK tools
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "8"
+          java-version: "17"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
       - name: Install Android SDK 31
         run: sdkmanager "platforms;android-31" "build-tools;31.0.0"
+
+      - name: Switch to Java 8 for legacy Gradle build
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "8"
 
       - name: Make Gradle wrapper executable
         working-directory: upstream
