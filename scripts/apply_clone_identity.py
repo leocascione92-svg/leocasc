@@ -1107,3 +1107,293 @@ t = t.replace(old, new, 2)
 frag.write_text(t, encoding="utf-8")
 
 print("Added procedural Comet/Breath/Orbit effects with live preview")
+
+
+# 19) More procedural effects + simplified optional AOD Helper UI.
+sprite = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/SpritePlayer.java")
+t = sprite.read_text(encoding="utf-8")
+
+old = "public enum Mode { SWIRL, SWIRL_SLOW, SWIRL_FAST, COMET, BREATH, ORBIT, BLINK, BLINK_SOFT, SINGLE, TSP, TSP_HIDE }"
+new = "public enum Mode { SWIRL, SWIRL_SLOW, SWIRL_FAST, COMET, DOUBLE_COMET, BREATH, HEARTBEAT, RADAR, NEON, ORBIT, RIPPLE, BLINK, BLINK_SOFT, SINGLE, TSP, TSP_HIDE }"
+if old not in t:
+    raise SystemExit("extended procedural Mode enum anchor not found")
+t = t.replace(old, new, 1)
+
+old = '''    public boolean isProceduralMode(Mode mode) {
+        return (mode == Mode.COMET) || (mode == Mode.BREATH) || (mode == Mode.ORBIT);
+    }'''
+new = '''    public boolean isProceduralMode(Mode mode) {
+        return (mode == Mode.COMET) ||
+                (mode == Mode.DOUBLE_COMET) ||
+                (mode == Mode.BREATH) ||
+                (mode == Mode.HEARTBEAT) ||
+                (mode == Mode.RADAR) ||
+                (mode == Mode.NEON) ||
+                (mode == Mode.ORBIT) ||
+                (mode == Mode.RIPPLE);
+    }'''
+if old not in t:
+    raise SystemExit("extended procedural helper anchor not found")
+t = t.replace(old, new, 1)
+
+old = '''        } else if (drawMode == Mode.ORBIT) {
+            float cycle = 1850f / safeSpeed;
+            float phase = ((diff % (long)Math.max(1f, cycle)) / cycle) * 360f;
+            paintProcedural.setStyle(Paint.Style.FILL);
+            final int dots = 4;
+            for (int i = 0; i < dots; i++) {
+                float angle = phase + ((360f / dots) * i);
+                double rad = Math.toRadians(angle);
+                int c = activeColors[i % activeColors.length];
+                int alpha = 255 - (i * 35);
+                paintProcedural.setColor((c & 0x00FFFFFF) | (alpha << 24));
+                float dotR = (i == 0 ? 3.8f : 2.7f) * dpToPx;
+                canvas.drawCircle(
+                        cx + ((float)Math.cos(rad) * radius),
+                        cy + ((float)Math.sin(rad) * radius),
+                        dotR,
+                        paintProcedural
+                );
+            }
+        }
+    }
+
+    private final Choreographer.FrameCallback frameCallback = new Choreographer.FrameCallback() {'''
+
+new = '''        } else if (drawMode == Mode.ORBIT) {
+            float cycle = 1850f / safeSpeed;
+            float phase = ((diff % (long)Math.max(1f, cycle)) / cycle) * 360f;
+            paintProcedural.setStyle(Paint.Style.FILL);
+            final int dots = 4;
+            for (int i = 0; i < dots; i++) {
+                float angle = phase + ((360f / dots) * i);
+                double rad = Math.toRadians(angle);
+                int c = activeColors[i % activeColors.length];
+                int alpha = 255 - (i * 35);
+                paintProcedural.setColor((c & 0x00FFFFFF) | (alpha << 24));
+                float dotR = (i == 0 ? 3.8f : 2.7f) * dpToPx;
+                canvas.drawCircle(
+                        cx + ((float)Math.cos(rad) * radius),
+                        cy + ((float)Math.sin(rad) * radius),
+                        dotR,
+                        paintProcedural
+                );
+            }
+        } else if (drawMode == Mode.DOUBLE_COMET) {
+            float cycle = 1900f / safeSpeed;
+            float phase = ((diff % (long)Math.max(1f, cycle)) / cycle) * 360f;
+            paintProcedural.setStyle(Paint.Style.STROKE);
+            paintProcedural.setStrokeWidth(3.0f * dpToPx);
+            for (int head = 0; head < 2; head++) {
+                float base = phase + (head * 180f);
+                for (int i = 0; i < 8; i++) {
+                    int alpha = Math.max(20, 245 - (i * 29));
+                    int c = activeColors[(head + i) % activeColors.length];
+                    paintProcedural.setColor((c & 0x00FFFFFF) | (alpha << 24));
+                    canvas.drawArc(
+                            cx - radius, cy - radius, cx + radius, cy + radius,
+                            base - (i * 8.5f), 18f, false, paintProcedural
+                    );
+                }
+            }
+        } else if (drawMode == Mode.HEARTBEAT) {
+            float cycle = 1650f / safeSpeed;
+            float part = (diff % (long)Math.max(1f, cycle)) / cycle;
+            double d1 = (part - 0.18f) / 0.055f;
+            double d2 = (part - 0.34f) / 0.070f;
+            float beat = (float)Math.min(1.0,
+                    Math.exp(-(d1 * d1)) + (0.72 * Math.exp(-(d2 * d2))));
+            int alpha = 42 + Math.round(213f * beat);
+            int c = activeColors[0];
+            paintProcedural.setStyle(Paint.Style.STROKE);
+            paintProcedural.setStrokeWidth((1.8f + (4.8f * beat)) * dpToPx);
+            paintProcedural.setColor((c & 0x00FFFFFF) | (alpha << 24));
+            canvas.drawCircle(cx, cy, radius - (2.2f * beat * dpToPx), paintProcedural);
+        } else if (drawMode == Mode.RADAR) {
+            float cycle = 2150f / safeSpeed;
+            float phase = ((diff % (long)Math.max(1f, cycle)) / cycle) * 360f;
+            int c = activeColors[0];
+            paintProcedural.setStyle(Paint.Style.STROKE);
+            paintProcedural.setStrokeWidth(1.5f * dpToPx);
+            paintProcedural.setColor((c & 0x00FFFFFF) | 0x33000000);
+            canvas.drawCircle(cx, cy, radius, paintProcedural);
+            for (int i = 0; i < 7; i++) {
+                int alpha = Math.max(24, 240 - (i * 31));
+                paintProcedural.setStrokeWidth((3.6f - (i * 0.28f)) * dpToPx);
+                paintProcedural.setColor((c & 0x00FFFFFF) | (alpha << 24));
+                canvas.drawArc(
+                        cx - radius, cy - radius, cx + radius, cy + radius,
+                        phase - (i * 10f), 32f, false, paintProcedural
+                );
+            }
+        } else if (drawMode == Mode.NEON) {
+            float cycle = 2400f / safeSpeed;
+            float phase = ((diff % (long)Math.max(1f, cycle)) / cycle) * 360f;
+            int c = activeColors[0];
+            int rgb = c & 0x00FFFFFF;
+            int[] gradientColors = new int[] {
+                    rgb,
+                    rgb | 0x22000000,
+                    rgb | 0xAA000000,
+                    c | 0xFF000000,
+                    Color.WHITE,
+                    c | 0xFF000000,
+                    rgb | 0x22000000,
+                    rgb
+            };
+            float[] positions = new float[] { 0f, 0.16f, 0.34f, 0.48f, 0.52f, 0.58f, 0.78f, 1f };
+            Shader neon = new SweepGradient(cx, cy, gradientColors, positions);
+            Matrix matrix = new Matrix();
+            matrix.preRotate(phase, cx, cy);
+            neon.setLocalMatrix(matrix);
+
+            paintProcedural.setStyle(Paint.Style.STROKE);
+            paintProcedural.setShader(neon);
+            paintProcedural.setStrokeWidth(7.0f * dpToPx);
+            paintProcedural.setAlpha(70);
+            canvas.drawCircle(cx, cy, radius, paintProcedural);
+            paintProcedural.setStrokeWidth(3.0f * dpToPx);
+            paintProcedural.setAlpha(255);
+            canvas.drawCircle(cx, cy, radius, paintProcedural);
+            paintProcedural.setShader(null);
+            paintProcedural.setAlpha(255);
+        } else if (drawMode == Mode.RIPPLE) {
+            float cycle = 2100f / safeSpeed;
+            float part = (diff % (long)Math.max(1f, cycle)) / cycle;
+            int c = activeColors[0];
+            paintProcedural.setStyle(Paint.Style.STROKE);
+            for (int i = 0; i < 3; i++) {
+                float p = (part + (i / 3f)) % 1f;
+                float rr = radius * (0.63f + (0.37f * p));
+                int alpha = Math.max(10, Math.round(210f * (1f - p)));
+                paintProcedural.setStrokeWidth((1.2f + (2.5f * (1f - p))) * dpToPx);
+                paintProcedural.setColor((c & 0x00FFFFFF) | (alpha << 24));
+                canvas.drawCircle(cx, cy, rr, paintProcedural);
+            }
+        }
+    }
+
+    private final Choreographer.FrameCallback frameCallback = new Choreographer.FrameCallback() {'''
+
+if old not in t:
+    raise SystemExit("extended procedural renderer anchor not found")
+t = t.replace(old, new, 1)
+sprite.write_text(t, encoding="utf-8")
+
+settings_file = Path("upstream/app/src/main/java/eu/chainfire/holeylight/misc/Settings.java")
+t = settings_file.read_text(encoding="utf-8")
+old = '''            new AnimationStyle("comet", SpritePlayer.Mode.COMET, R.string.animation_style_comet_title, R.string.animation_style_location_camera, 4.5f),
+            new AnimationStyle("breath", SpritePlayer.Mode.BREATH, R.string.animation_style_breath_title, R.string.animation_style_location_camera, 3.0f),
+            new AnimationStyle("orbit", SpritePlayer.Mode.ORBIT, R.string.animation_style_orbit_title, R.string.animation_style_location_camera, 4.0f),'''
+new = '''            new AnimationStyle("comet", SpritePlayer.Mode.COMET, R.string.animation_style_comet_title, R.string.animation_style_location_camera, 4.5f),
+            new AnimationStyle("double_comet", SpritePlayer.Mode.DOUBLE_COMET, R.string.animation_style_double_comet_title, R.string.animation_style_location_camera, 4.8f),
+            new AnimationStyle("breath", SpritePlayer.Mode.BREATH, R.string.animation_style_breath_title, R.string.animation_style_location_camera, 3.0f),
+            new AnimationStyle("heartbeat", SpritePlayer.Mode.HEARTBEAT, R.string.animation_style_heartbeat_title, R.string.animation_style_location_camera, 3.2f),
+            new AnimationStyle("radar", SpritePlayer.Mode.RADAR, R.string.animation_style_radar_title, R.string.animation_style_location_camera, 4.0f),
+            new AnimationStyle("neon", SpritePlayer.Mode.NEON, R.string.animation_style_neon_title, R.string.animation_style_location_camera, 4.6f),
+            new AnimationStyle("orbit", SpritePlayer.Mode.ORBIT, R.string.animation_style_orbit_title, R.string.animation_style_location_camera, 4.0f),
+            new AnimationStyle("ripple", SpritePlayer.Mode.RIPPLE, R.string.animation_style_ripple_title, R.string.animation_style_location_camera, 3.8f),'''
+if old not in t:
+    raise SystemExit("extended animation style table anchor not found")
+t = t.replace(old, new, 1)
+settings_file.write_text(t, encoding="utf-8")
+
+for rel, strings in [
+    ("upstream/app/src/main/res/values/strings.xml", [
+        ("animation_style_double_comet_title", "Double comet"),
+        ("animation_style_heartbeat_title", "Heartbeat"),
+        ("animation_style_radar_title", "Radar"),
+        ("animation_style_neon_title", "Neon sweep"),
+        ("animation_style_ripple_title", "Ripple"),
+    ]),
+    ("upstream/app/src/main/res/values-it/strings.xml", [
+        ("animation_style_double_comet_title", "Doppia cometa"),
+        ("animation_style_heartbeat_title", "Heartbeat"),
+        ("animation_style_radar_title", "Radar"),
+        ("animation_style_neon_title", "Neon sweep"),
+        ("animation_style_ripple_title", "Ripple"),
+    ]),
+]:
+    p = Path(rel)
+    txt = p.read_text(encoding="utf-8")
+    if "animation_style_double_comet_title" not in txt:
+        block = "\n" + "\n".join([f'    <string name="{k}">{v}</string>' for k, v in strings]) + "\n"
+        txt = txt.replace("</resources>", block + "</resources>")
+        p.write_text(txt, encoding="utf-8")
+
+frag = Path("upstream/app/src/main/java/eu/chainfire/holeylight/ui/SettingsFragment.java")
+t = frag.read_text(encoding="utf-8")
+
+old = '''                    SpritePlayer.Mode.SWIRL_FAST,
+                    SpritePlayer.Mode.COMET,
+                    SpritePlayer.Mode.BREATH,
+                    SpritePlayer.Mode.ORBIT,
+                    SpritePlayer.Mode.BLINK_SOFT,'''
+new = '''                    SpritePlayer.Mode.SWIRL_FAST,
+                    SpritePlayer.Mode.COMET,
+                    SpritePlayer.Mode.DOUBLE_COMET,
+                    SpritePlayer.Mode.BREATH,
+                    SpritePlayer.Mode.HEARTBEAT,
+                    SpritePlayer.Mode.RADAR,
+                    SpritePlayer.Mode.NEON,
+                    SpritePlayer.Mode.ORBIT,
+                    SpritePlayer.Mode.RIPPLE,
+                    SpritePlayer.Mode.BLINK_SOFT,'''
+if t.count(old) < 2:
+    raise SystemExit("extended effect picker anchors not found")
+t = t.replace(old, new, 2)
+
+# Replace the old technical helper category with one optional, understandable item.
+needle = '''        refreshS24Profile.run();
+
+        prefHideAOD.setTitle("Mascheramento AOD (avanzato)");'''
+replacement = '''        refreshS24Profile.run();
+
+        Preference prefAODPowerSave = pref(catS24AOD, 0, 0, null, true, null);
+        prefAODPowerSave.setTitle("Risparmio AOD automatico");
+
+        Runnable refreshAODPowerSave = () -> {
+            AODControl.AODHelperState state = AODControl.getAODHelperState(getContext());
+            if (state == AODControl.AODHelperState.OK) {
+                prefAODPowerSave.setSummary(settings.isAODHelperControl()
+                        ? "Attivo — spegne l'AOD di sistema quando non ci sono notifiche"
+                        : "Disattivato — tocca per attivare");
+            } else if (state == AODControl.AODHelperState.NEEDS_UPDATE) {
+                prefAODPowerSave.setSummary("Opzionale — AOD Helper va aggiornato");
+            } else if (state == AODControl.AODHelperState.NEEDS_PERMISSIONS) {
+                prefAODPowerSave.setSummary("Opzionale — AOD Helper richiede autorizzazioni");
+            } else {
+                prefAODPowerSave.setSummary("Opzionale — richiede il companion AOD Helper");
+            }
+        };
+
+        prefAODPowerSave.setOnPreferenceClickListener(preference -> {
+            AODControl.AODHelperState state = AODControl.getAODHelperState(getContext());
+            if (state != AODControl.AODHelperState.OK) {
+                Activity activity = getActivity();
+                if (activity instanceof MainActivity) {
+                    ((MainActivity)activity).aodHelperInstructions();
+                }
+                return true;
+            }
+            settings.setAODHelperControl(!settings.isAODHelperControl());
+            refreshAODPowerSave.run();
+            return true;
+        });
+        refreshAODPowerSave.run();
+
+        prefHideAOD.setTitle("Mascheramento AOD (avanzato)");'''
+if needle not in t:
+    raise SystemExit("AOD power save insertion anchor not found")
+t = t.replace(needle, replacement, 1)
+
+needle = '''        PreferenceCategory catAODHelper = category(root, R.string.settings_category_aod_helper_title, R.string.settings_category_aod_helper_description);'''
+replacement = '''        PreferenceCategory catAODHelper = category(root, R.string.settings_category_aod_helper_title, R.string.settings_category_aod_helper_description);
+        catAODHelper.setVisible(false);'''
+if needle not in t:
+    raise SystemExit("legacy AOD helper category anchor not found")
+t = t.replace(needle, replacement, 1)
+
+frag.write_text(t, encoding="utf-8")
+
+print("Added DoubleComet/Heartbeat/Radar/Neon/Ripple and simplified AOD Helper UI")
