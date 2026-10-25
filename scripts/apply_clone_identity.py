@@ -566,3 +566,243 @@ if start != -1:
 frag.write_text(t, encoding="utf-8")
 
 print("Added S24 AOD profiles and extra animation presets")
+
+
+# 17) Make AOD profiles behaviorally distinct and expose animation presets clearly.
+
+# --- Draw our own battery percentage/bar in the partial AOD profile ---
+sprite = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/SpritePlayer.java")
+t = sprite.read_text(encoding="utf-8")
+
+needle = '''    private final Paint paintTspTransparentDebug = new Paint();
+    private final float dpToPx;'''
+replacement = '''    private final Paint paintTspTransparentDebug = new Paint();
+    private final Paint paintBattery = new Paint();
+    private final Paint paintBatteryTrack = new Paint();
+    private volatile boolean showBatteryStatus = false;
+    private final float dpToPx;'''
+if needle not in t:
+    raise SystemExit("SpritePlayer paint field anchor not found")
+t = t.replace(needle, replacement, 1)
+
+needle = '''        paintTspTransparentDebug.setColor(0x4000FF00);
+
+        handlerRender.post(() -> {'''
+replacement = '''        paintTspTransparentDebug.setColor(0x4000FF00);
+
+        paintBattery.setAntiAlias(true);
+        paintBattery.setColor(Color.WHITE);
+        paintBattery.setTextAlign(Paint.Align.CENTER);
+        paintBatteryTrack.setAntiAlias(true);
+        paintBatteryTrack.setColor(0x55FFFFFF);
+
+        handlerRender.post(() -> {'''
+if needle not in t:
+    raise SystemExit("SpritePlayer paint init anchor not found")
+t = t.replace(needle, replacement, 1)
+
+needle = '''        if (Settings.DEBUG_OVERLAY) canvas.drawColor(0x80808080);
+        if (isTSPMode()) {'''
+replacement = '''        if (Settings.DEBUG_OVERLAY) canvas.drawColor(0x80808080);
+
+        // S24 partial-AOD profile: Holey Light owns the battery indicator so it
+        // is available even when Samsung's "show charging information" is off.
+        if ((drawMode == Mode.TSP_HIDE) && showBatteryStatus) {
+            android.os.BatteryManager bm = (android.os.BatteryManager)getContext().getSystemService(Context.BATTERY_SERVICE);
+            int level = bm == null ? -1 : bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY);
+            if (level >= 0 && level <= 100) {
+                float cx = this.width / 2f;
+                float textY = this.height - (18f * dpToPx);
+                float barY = this.height - (10f * dpToPx);
+                float barW = Math.min(this.width * 0.42f, 180f * dpToPx);
+                float barH = 3f * dpToPx;
+                float left = cx - barW / 2f;
+                float right = cx + barW / 2f;
+
+                paintBattery.setTextSize(11f * dpToPx);
+                paintBattery.setStyle(Paint.Style.FILL);
+                canvas.drawText(level + "%", cx, textY, paintBattery);
+
+                canvas.drawRoundRect(left, barY, right, barY + barH, barH / 2f, barH / 2f, paintBatteryTrack);
+                canvas.drawRoundRect(left, barY, left + (barW * level / 100f), barY + barH, barH / 2f, barH / 2f, paintBattery);
+            }
+        }
+
+        if (isTSPMode()) {'''
+if needle not in t:
+    raise SystemExit("SpritePlayer render anchor not found")
+t = t.replace(needle, replacement, 1)
+
+needle = '''    public void setDrawBackground(boolean drawBackground) {
+        synchronized (sync) {'''
+replacement = '''    public void setShowBatteryStatus(boolean value) {
+        synchronized (sync) {
+            if (showBatteryStatus != value) {
+                showBatteryStatus = value;
+                surfaceInvalidated = true;
+                if (draw) callNextFrame(true);
+            }
+        }
+    }
+
+    public void setDrawBackground(boolean drawBackground) {
+        synchronized (sync) {'''
+if needle not in t:
+    raise SystemExit("SpritePlayer setter anchor not found")
+t = t.replace(needle, replacement, 1)
+sprite.write_text(t, encoding="utf-8")
+
+anim = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/NotificationAnimation.java")
+t = anim.read_text(encoding="utf-8")
+needle = '''                spritePlayer.setDrawBackground(hideAOD);
+
+                // Get going'''
+replacement = '''                spritePlayer.setDrawBackground(hideAOD);
+                spritePlayer.setShowBatteryStatus(hideAOD && !hideAODFully);
+
+                // Get going'''
+if needle not in t:
+    raise SystemExit("NotificationAnimation battery status anchor not found")
+t = t.replace(needle, replacement, 1)
+anim.write_text(t, encoding="utf-8")
+
+# --- Simplify/clarify the S24 profile selector ---
+frag = Path("upstream/app/src/main/java/eu/chainfire/holeylight/ui/SettingsFragment.java")
+t = frag.read_text(encoding="utf-8")
+
+old = '''            if (!settings.isHideAOD()) {
+                summary = "AOD Samsung completo";
+            } else if (settings.isHideAODFully()) {
+                summary = "Solo vortice";
+            } else if (!settings.isShowAODClock()) {
+                summary = "Impronta + batteria";
+            } else {
+                summary = "Personalizzato";
+            }'''
+new = '''            if (!settings.isHideAOD()) {
+                summary = "AOD Samsung completo";
+            } else if (settings.isHideAODFully()) {
+                summary = "Vortice minimale";
+            } else {
+                summary = "Impronta + batteria";
+            }'''
+if old not in t:
+    raise SystemExit("S24 profile summary block not found")
+t = t.replace(old, new, 1)
+
+old = '''                    .setItems(new CharSequence[] {
+                            "AOD Samsung completo\\nOrologio e contenuti One UI visibili",
+                            "Impronta + batteria\\nNiente orologio; lascia visibile la fascia inferiore",
+                            "Solo vortice\\nAOD oscurato completamente",
+                            "Personalizzato\\nUsa le opzioni avanzate già presenti"
+                    }, (dialog, which) -> {'''
+new = '''                    .setItems(new CharSequence[] {
+                            "AOD Samsung completo\\nOrologio e contenuti One UI visibili",
+                            "Impronta + batteria\\nSchermo nero, impronta Samsung e batteria disegnata da Holey Light",
+                            "Vortice minimale\\nSchermo nero e vortice; l'impronta può restare se One UI è impostata per mostrarla"
+                    }, (dialog, which) -> {'''
+if old not in t:
+    raise SystemExit("S24 profile items block not found")
+t = t.replace(old, new, 1)
+
+old = '''                            case 2:
+                                settings.setHideAOD(true, true);
+                                settings.setShowAODClock(false);
+                                break;
+                            case 3:
+                                prefHideAOD.performClick();
+                                break;'''
+new = '''                            case 2:
+                                settings.setHideAOD(true, true);
+                                settings.setShowAODClock(false);
+                                break;'''
+if old not in t:
+    raise SystemExit("S24 profile switch tail not found")
+t = t.replace(old, new, 1)
+
+# Hide the old advanced mask/clock controls from the normal S24 UI. They remain
+# in code/state for compatibility but no longer confuse the profile selector.
+needle = '''        prefHideAOD.setTitle("Mascheramento AOD (avanzato)");'''
+replacement = '''        prefHideAOD.setTitle("Mascheramento AOD (avanzato)");
+        prefHideAOD.setVisible(false);'''
+if needle not in t:
+    raise SystemExit("advanced mask title anchor not found")
+t = t.replace(needle, replacement, 1)
+
+needle = '''        prefUnholeyClock.setTitle("Mostra orologio AOD (avanzato)");'''
+replacement = '''        prefUnholeyClock.setTitle("Mostra orologio AOD (avanzato)");
+        prefUnholeyClock.setVisible(false);'''
+if needle not in t:
+    raise SystemExit("advanced clock title anchor not found")
+t = t.replace(needle, replacement, 1)
+
+# --- Clear animation pickers in the Animation section ---
+anchor = '''        PreferenceCategory catAnimation = category(root, R.string.settings_category_animation_title, 0);'''
+if anchor not in t:
+    raise SystemExit("animation category anchor not found")
+
+insert = anchor + '''
+
+        Preference prefEffectScreenOn = pref(catAnimation, 0, 0, null, true, null);
+        prefEffectScreenOn.setTitle("Effetto a schermo acceso");
+        prefEffectScreenOn.setSummary(getString(settings.getAnimationStyle(settings.getAnimationMode(Settings.SCREEN_ON_BATTERY)).title));
+        prefEffectScreenOn.setOnPreferenceClickListener(preference -> {
+            final SpritePlayer.Mode[] modes = new SpritePlayer.Mode[] {
+                    SpritePlayer.Mode.SWIRL,
+                    SpritePlayer.Mode.SWIRL_SLOW,
+                    SpritePlayer.Mode.SWIRL_FAST,
+                    SpritePlayer.Mode.BLINK_SOFT,
+                    SpritePlayer.Mode.BLINK,
+                    SpritePlayer.Mode.SINGLE
+            };
+            CharSequence[] labels = new CharSequence[modes.length];
+            for (int i = 0; i < modes.length; i++) {
+                labels[i] = getString(settings.getAnimationStyle(modes[i]).title);
+            }
+            (new AlertDialog.Builder(getContext()))
+                    .setTitle("Effetto a schermo acceso")
+                    .setItems(labels, (dialog, which) -> {
+                        SpritePlayer.Mode selected = modes[which];
+                        settings.setAnimationMode(Settings.SCREEN_ON_BATTERY, selected);
+                        settings.setAnimationMode(Settings.SCREEN_ON_CHARGING, selected);
+                        preference.setSummary(getString(settings.getAnimationStyle(selected).title));
+                    })
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
+            return true;
+        });
+
+        Preference prefEffectScreenOff = pref(catAnimation, 0, 0, null, true, null);
+        prefEffectScreenOff.setTitle("Effetto a schermo spento");
+        prefEffectScreenOff.setSummary(getString(settings.getAnimationStyle(settings.getAnimationMode(Settings.SCREEN_OFF_BATTERY)).title));
+        prefEffectScreenOff.setOnPreferenceClickListener(preference -> {
+            final SpritePlayer.Mode[] modes = new SpritePlayer.Mode[] {
+                    SpritePlayer.Mode.SWIRL,
+                    SpritePlayer.Mode.SWIRL_SLOW,
+                    SpritePlayer.Mode.SWIRL_FAST,
+                    SpritePlayer.Mode.BLINK_SOFT,
+                    SpritePlayer.Mode.BLINK,
+                    SpritePlayer.Mode.SINGLE,
+                    SpritePlayer.Mode.TSP
+            };
+            CharSequence[] labels = new CharSequence[modes.length];
+            for (int i = 0; i < modes.length; i++) {
+                labels[i] = getString(settings.getAnimationStyle(modes[i]).title);
+            }
+            (new AlertDialog.Builder(getContext()))
+                    .setTitle("Effetto a schermo spento")
+                    .setItems(labels, (dialog, which) -> {
+                        SpritePlayer.Mode selected = modes[which];
+                        settings.setAnimationMode(Settings.SCREEN_OFF_BATTERY, selected);
+                        settings.setAnimationMode(Settings.SCREEN_OFF_CHARGING, selected);
+                        preference.setSummary(getString(settings.getAnimationStyle(selected).title));
+                    })
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show();
+            return true;
+        });'''
+t = t.replace(anchor, insert, 1)
+
+frag.write_text(t, encoding="utf-8")
+
+print("Clarified AOD profiles, added in-overlay battery status, and exposed effect pickers")
