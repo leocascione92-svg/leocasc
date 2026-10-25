@@ -197,3 +197,92 @@ if old not in t:
 permissions.write_text(t.replace(old, new, 1), encoding="utf-8")
 
 print("Fixed clone-vs-original accessibility service detection")
+
+
+# 13) S24-specific vortex geometry defaults. These values are used even after
+# Reset because they replace the generic device-spec fallback for this clone.
+anim = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/NotificationAnimation.java")
+t = anim.read_text(encoding="utf-8")
+repls = {
+    "return settings.getDpAddScaleBase(spec.dpAddScaleBase);":
+        "return settings.getDpAddScaleBase(-14.50f);",
+    "return settings.getDpAddScaleHorizontal(spec.dpAddScaleHorizontal);":
+        "return settings.getDpAddScaleHorizontal(0.00f);",
+    "return settings.getDpShiftVertical(spec.dpShiftVertical);":
+        "return settings.getDpShiftVertical(-2.00f);",
+    "return settings.getDpShiftHorizontal(spec.dpShiftHorizontal);":
+        "return settings.getDpShiftHorizontal(-4.00f);",
+    "return settings.getDpAddThickness(0);":
+        "return settings.getDpAddThickness(0.00f);",
+}
+for old, new in repls.items():
+    if old not in t:
+        raise SystemExit(f"S24 tuning getter not found: {old}")
+    t = t.replace(old, new, 1)
+anim.write_text(t, encoding="utf-8")
+
+# 14) Clean promotional/donation UI while preserving author/license attribution.
+frag = Path("upstream/app/src/main/java/eu/chainfire/holeylight/ui/SettingsFragment.java")
+t = frag.read_text(encoding="utf-8")
+
+# Remove top donation placeholder.
+start = t.find("        prefDonateTop = pref(null, R.string.donate_title")
+if start != -1:
+    end = t.find("\n\n", start)
+    if end == -1:
+        raise SystemExit("top donation block end not found")
+    t = t[:start] + t[end+2:]
+
+# Remove Chainfire promotional category (donation, all apps, Twitter).
+start = t.find("        PreferenceCategory catChainfire = category(root, R.string.settings_category_chainfire_title, 0);")
+end = t.find("        PreferenceCategory catCustomizations = category(root, R.string.settings_category_customization, 0);", start)
+if start == -1 or end == -1:
+    raise SystemExit("Chainfire promotional category block not found")
+t = t[:start] + t[end:]
+
+# Make Samsung tips actionable shortcuts instead of dead rows.
+old = '''            pref(catTips, R.string.tips_samsung_fingerprint_title, 0, null, true, null).setSummary(Html.fromHtml(getString(R.string.tips_samsung_fingerprint_description)));
+            pref(catTips, R.string.tips_samsung_battery_title, 0, null, true, null).setSummary(Html.fromHtml(getString(R.string.tips_samsung_battery_description)));'''
+
+new = '''            pref(catTips, R.string.tips_samsung_fingerprint_title, 0, null, true, preference -> {
+                try {
+                    Intent i = new Intent(android.provider.Settings.ACTION_SECURITY_SETTINGS);
+                    startActivity(i);
+                } catch (Exception e) {
+                    startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS));
+                }
+                return true;
+            }).setSummary(Html.fromHtml(getString(R.string.tips_samsung_fingerprint_description)));
+
+            pref(catTips, R.string.tips_samsung_battery_title, 0, null, true, preference -> {
+                try {
+                    Intent i = new Intent(android.provider.Settings.ACTION_BATTERY_SAVER_SETTINGS);
+                    startActivity(i);
+                } catch (Exception e) {
+                    startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS));
+                }
+                return true;
+            }).setSummary(Html.fromHtml(getString(R.string.tips_samsung_battery_description)));'''
+
+if old not in t:
+    raise SystemExit("Samsung tips block not found")
+t = t.replace(old, new, 1)
+frag.write_text(t, encoding="utf-8")
+
+# 15) Remove billing dependency from the clone build. Donation UI is gone, so
+# billing should not initialize or pull Google Billing into the APK.
+gradle = Path("upstream/app/build.gradle")
+t = gradle.read_text(encoding="utf-8")
+t = t.replace("    implementation 'com.android.billingclient:billing:5.1.0'\n", "")
+gradle.write_text(t, encoding="utf-8")
+
+main = Path("upstream/app/src/main/java/eu/chainfire/holeylight/ui/MainActivity.java")
+t = main.read_text(encoding="utf-8")
+
+# Strip billing imports/classes/callback code by retaining source compilation:
+# keep imports for now if referenced, but disable connector scheduling and donation entrypoints.
+t = t.replace("        handler.removeCallbacks(billingConnectorRunnable);\n        handler.post(billingConnectorRunnable);\n", "")
+t = t.replace("        handler.removeCallbacks(billingConnectorRunnable);\n", "")
+main.write_text(t, encoding="utf-8")
+
+print("Applied S24 defaults, actionable AOD shortcuts, and UI cleanup")
