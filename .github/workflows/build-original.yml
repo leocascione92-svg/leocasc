@@ -27,11 +27,10 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK 31
-        run: sdkmanager "platforms;android-31" "build-tools;31.0.0"
+      - name: Install Android SDK 31 using runner SDK
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-31" "build-tools;31.0.0"
 
       - name: Switch to Java 8 for legacy Gradle build
         uses: actions/setup-java@v5
