@@ -221,26 +221,20 @@ for old, new in repls.items():
     t = t.replace(old, new, 1)
 anim.write_text(t, encoding="utf-8")
 
-# 14) Clean promotional/donation UI while preserving author/license attribution.
+# 14) Clean promotional UI safely. Keep the legacy donation Preference objects
+# alive because updatePrefs() still touches them, but hide the whole Chainfire
+# category so nothing promotional is shown.
 frag = Path("upstream/app/src/main/java/eu/chainfire/holeylight/ui/SettingsFragment.java")
 t = frag.read_text(encoding="utf-8")
 
-# Remove top donation placeholder.
-start = t.find("        prefDonateTop = pref(null, R.string.donate_title")
-if start != -1:
-    end = t.find("\n\n", start)
-    if end == -1:
-        raise SystemExit("top donation block end not found")
-    t = t[:start] + t[end+2:]
+needle = '''        PreferenceCategory catChainfire = category(root, R.string.settings_category_chainfire_title, 0);'''
+replacement_cat = '''        PreferenceCategory catChainfire = category(root, R.string.settings_category_chainfire_title, 0);
+        catChainfire.setVisible(false);'''
+if needle not in t:
+    raise SystemExit("Chainfire category insertion point not found")
+t = t.replace(needle, replacement_cat, 1)
 
-# Remove Chainfire promotional category (donation, all apps, Twitter).
-start = t.find("        PreferenceCategory catChainfire = category(root, R.string.settings_category_chainfire_title, 0);")
-end = t.find("        PreferenceCategory catCustomizations = category(root, R.string.settings_category_customization, 0);", start)
-if start == -1 or end == -1:
-    raise SystemExit("Chainfire promotional category block not found")
-t = t[:start] + t[end:]
-
-# Make Samsung tips actionable shortcuts instead of dead rows.
+# Make Samsung tips useful shortcuts instead of dead informational rows.
 old = '''            pref(catTips, R.string.tips_samsung_fingerprint_title, 0, null, true, null).setSummary(Html.fromHtml(getString(R.string.tips_samsung_fingerprint_description)));
             pref(catTips, R.string.tips_samsung_battery_title, 0, null, true, null).setSummary(Html.fromHtml(getString(R.string.tips_samsung_battery_description)));'''
 
@@ -269,15 +263,7 @@ if old not in t:
 t = t.replace(old, new, 1)
 frag.write_text(t, encoding="utf-8")
 
-# 15) Donation UI is removed and the billing connector is no longer scheduled.
-# Keep the dependency for source compatibility in this pass.
-main = Path("upstream/app/src/main/java/eu/chainfire/holeylight/ui/MainActivity.java")
-t = main.read_text(encoding="utf-8")
-
-# Strip billing imports/classes/callback code by retaining source compilation:
-# keep imports for now if referenced, but disable connector scheduling and donation entrypoints.
-t = t.replace("        handler.removeCallbacks(billingConnectorRunnable);\n        handler.post(billingConnectorRunnable);\n", "")
-t = t.replace("        handler.removeCallbacks(billingConnectorRunnable);\n", "")
-main.write_text(t, encoding="utf-8")
+# Keep billing code untouched for compatibility. The promotional category is hidden,
+# so the user sees no donation/Play Store/Twitter entries.
 
 print("Applied S24 defaults, actionable AOD shortcuts, and UI cleanup")
