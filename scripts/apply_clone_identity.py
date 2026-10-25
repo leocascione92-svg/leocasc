@@ -250,7 +250,7 @@ new = '''            pref(catTips, R.string.tips_samsung_fingerprint_title, 0, n
 
             pref(catTips, R.string.tips_samsung_battery_title, 0, null, true, preference -> {
                 try {
-                    Intent i = new Intent(android.provider.Settings.ACTION_BATTERY_SETTINGS);
+                    Intent i = new Intent("android.settings.BATTERY_SETTINGS");
                     startActivity(i);
                 } catch (Exception e) {
                     startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS));
