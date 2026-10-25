@@ -514,10 +514,10 @@ profile = anchor + '''
             (new AlertDialog.Builder(getContext()))
                     .setTitle("Modalità AOD S24")
                     .setItems(new CharSequence[] {
-                            "AOD Samsung completo\nOrologio e contenuti One UI visibili",
-                            "Impronta + batteria\nNiente orologio; lascia visibile la fascia inferiore",
-                            "Solo vortice\nAOD oscurato completamente",
-                            "Personalizzato\nUsa le opzioni avanzate già presenti"
+                            "AOD Samsung completo\\nOrologio e contenuti One UI visibili",
+                            "Impronta + batteria\\nNiente orologio; lascia visibile la fascia inferiore",
+                            "Solo vortice\\nAOD oscurato completamente",
+                            "Personalizzato\\nUsa le opzioni avanzate già presenti"
                     }, (dialog, which) -> {
                         switch (which) {
                             case 0:
