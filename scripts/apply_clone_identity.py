@@ -2424,3 +2424,399 @@ t = t.replace(old, new, 1)
 overlay.write_text(t, encoding="utf-8")
 
 print("Moved no-notification battery info to a tiny side panel; 7741 base otherwise unchanged")
+
+
+# 23) S24 bottom battery panel + reduced AOD.
+# Built on top of the known-good 7741fc7d base and the minimal side-panel fix.
+# The notification/AOD renderer itself is otherwise left untouched.
+
+# --- Persist the reduced-AOD profile as a separate S24 setting.
+settings_file = Path("upstream/app/src/main/java/eu/chainfire/holeylight/misc/Settings.java")
+t = settings_file.read_text(encoding="utf-8")
+
+needle = '''    public static final String AOD_SHOW_CLOCK = "aod_show_clock";
+    public static final boolean AOD_SHOW_CLOCK_DEFAULT = false;'''
+replacement = '''    public static final String AOD_SHOW_CLOCK = "aod_show_clock";
+    public static final boolean AOD_SHOW_CLOCK_DEFAULT = false;
+
+    public static final String S24_REDUCED_AOD = "s24_reduced_aod";
+    public static final boolean S24_REDUCED_AOD_DEFAULT = false;'''
+if needle not in t:
+    raise SystemExit("S24 reduced AOD constant anchor not found")
+t = t.replace(needle, replacement, 1)
+
+needle = '''    public void setShowAODClock(boolean value) {
+        put(AOD_SHOW_CLOCK, value, true);
+    }'''
+replacement = '''    public void setShowAODClock(boolean value) {
+        put(AOD_SHOW_CLOCK, value, true);
+    }
+
+    public boolean isS24ReducedAOD() {
+        return prefs.getBoolean(S24_REDUCED_AOD, S24_REDUCED_AOD_DEFAULT);
+    }
+
+    public void setS24ReducedAOD(boolean value) {
+        put(S24_REDUCED_AOD, value, true);
+    }'''
+if needle not in t:
+    raise SystemExit("S24 reduced AOD getter anchor not found")
+t = t.replace(needle, replacement, 1)
+settings_file.write_text(t, encoding="utf-8")
+
+# --- Upgrade the tiny battery side window into a bottom-centered panel.
+overlay = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/Overlay.java")
+t = overlay.read_text(encoding="utf-8")
+
+needle = '''    private android.widget.LinearLayout s24BatteryPanel = null;
+    private android.widget.TextView s24BatteryText = null;
+    private android.widget.ProgressBar s24BatteryBar = null;
+    private boolean s24BatteryPanelAdded = false;'''
+replacement = '''    private android.widget.LinearLayout s24BatteryPanel = null;
+    private android.widget.TextView s24ClockText = null;
+    private android.widget.TextView s24BatteryText = null;
+    private android.widget.TextView s24BatteryDetail = null;
+    private android.widget.ProgressBar s24BatteryBar = null;
+    private boolean s24BatteryPanelAdded = false;
+
+    private final Runnable s24BatteryTicker = new Runnable() {
+        @Override
+        public void run() {
+            if (s24BatteryPanelAdded && spritePlayer != null) {
+                updateS24BatteryPanel(spritePlayer.getContext());
+                handler.postDelayed(this, 60000L);
+            }
+        }
+    };'''
+if needle not in t:
+    raise SystemExit("S24 panel fields anchor not found")
+t = t.replace(needle, replacement, 1)
+
+start = t.find('''    private void ensureS24BatteryPanel(Context context) {''')
+if start == -1:
+    raise SystemExit("ensureS24BatteryPanel start not found")
+end = t.find('''    private void hideS24BatteryPanel() {''', start)
+if end == -1:
+    raise SystemExit("hideS24BatteryPanel anchor not found")
+
+new_methods = '''    private void ensureS24BatteryPanel(Context context) {
+        if (s24BatteryPanel != null) return;
+
+        s24BatteryPanel = new android.widget.LinearLayout(context);
+        s24BatteryPanel.setOrientation(android.widget.LinearLayout.VERTICAL);
+        s24BatteryPanel.setGravity(Gravity.CENTER);
+        s24BatteryPanel.setBackgroundColor(Color.TRANSPARENT);
+
+        s24ClockText = new android.widget.TextView(context);
+        s24ClockText.setTextColor(Color.WHITE);
+        s24ClockText.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13f);
+        s24ClockText.setGravity(Gravity.CENTER);
+        s24ClockText.setIncludeFontPadding(false);
+        s24BatteryPanel.addView(
+                s24ClockText,
+                new android.widget.LinearLayout.LayoutParams(
+                        s24dp(180f),
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+        );
+
+        s24BatteryText = new android.widget.TextView(context);
+        s24BatteryText.setTextColor(Color.WHITE);
+        s24BatteryText.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11f);
+        s24BatteryText.setGravity(Gravity.CENTER);
+        s24BatteryText.setIncludeFontPadding(false);
+        s24BatteryPanel.addView(
+                s24BatteryText,
+                new android.widget.LinearLayout.LayoutParams(
+                        s24dp(180f),
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+        );
+
+        s24BatteryDetail = new android.widget.TextView(context);
+        s24BatteryDetail.setTextColor(0xDDFFFFFF);
+        s24BatteryDetail.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 9f);
+        s24BatteryDetail.setGravity(Gravity.CENTER);
+        s24BatteryDetail.setIncludeFontPadding(false);
+        android.widget.LinearLayout.LayoutParams detailParams =
+                new android.widget.LinearLayout.LayoutParams(
+                        s24dp(180f),
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                );
+        detailParams.topMargin = s24dp(2f);
+        s24BatteryPanel.addView(s24BatteryDetail, detailParams);
+
+        s24BatteryBar = new android.widget.ProgressBar(
+                context,
+                null,
+                android.R.attr.progressBarStyleHorizontal
+        );
+        s24BatteryBar.setIndeterminate(false);
+        s24BatteryBar.setMax(100);
+        s24BatteryBar.setProgressTintList(
+                android.content.res.ColorStateList.valueOf(Color.WHITE)
+        );
+        s24BatteryBar.setProgressBackgroundTintList(
+                android.content.res.ColorStateList.valueOf(0x44FFFFFF)
+        );
+
+        android.widget.LinearLayout.LayoutParams barParams =
+                new android.widget.LinearLayout.LayoutParams(
+                        s24dp(92f),
+                        Math.max(2, s24dp(3f))
+                );
+        barParams.topMargin = s24dp(4f);
+        s24BatteryPanel.addView(s24BatteryBar, barParams);
+    }
+
+    private String s24FormatDuration(long millis) {
+        if (millis <= 0) return null;
+        long minutes = Math.max(1L, millis / 60000L);
+        long hours = minutes / 60L;
+        long mins = minutes % 60L;
+        if (hours > 0L && mins > 0L) return hours + " h " + mins + " m";
+        if (hours > 0L) return hours + " h";
+        return mins + " m";
+    }
+
+    private long s24EstimateDischargeRemaining(android.os.BatteryManager bm) {
+        if (bm == null) return -1L;
+        long chargeCounter = bm.getLongProperty(android.os.BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER);
+        long currentNow = bm.getLongProperty(android.os.BatteryManager.BATTERY_PROPERTY_CURRENT_NOW);
+        if (chargeCounter <= 0L || currentNow == 0L || currentNow == Long.MIN_VALUE) return -1L;
+
+        double hours = (double)chargeCounter / (double)Math.abs(currentNow);
+        if (hours < (5.0 / 60.0) || hours > (24.0 * 7.0)) return -1L;
+        return (long)(hours * 60.0 * 60.0 * 1000.0);
+    }
+
+    private void updateS24BatteryPanel(Context context) {
+        if (s24BatteryPanel == null) return;
+
+        android.os.BatteryManager bm =
+                (android.os.BatteryManager)context.getSystemService(Context.BATTERY_SERVICE);
+        int level = bm == null
+                ? -1
+                : bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY);
+        if (level < 0 || level > 100) return;
+
+        boolean charging = Battery.isCharging(context);
+        boolean reduced = settings.isS24ReducedAOD();
+
+        s24ClockText.setVisibility(reduced ? View.VISIBLE : View.GONE);
+        if (reduced) {
+            java.text.SimpleDateFormat sdf =
+                    new java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault());
+            s24ClockText.setText(sdf.format(new java.util.Date()));
+        }
+
+        s24BatteryText.setText((charging ? "⚡ " : "") + level + "%");
+
+        String detail = null;
+        if (charging && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P && bm != null) {
+            long remaining = bm.computeChargeTimeRemaining();
+            String formatted = s24FormatDuration(remaining);
+            if (formatted != null) detail = formatted + " alla carica max";
+        } else if (!charging) {
+            long estimate = s24EstimateDischargeRemaining(bm);
+            String formatted = s24FormatDuration(estimate);
+            if (formatted != null) detail = "≈ " + formatted + " autonomia";
+        }
+
+        if (detail == null) {
+            detail = charging ? "In carica" : "";
+        }
+        s24BatteryDetail.setText(detail);
+        s24BatteryDetail.setVisibility(detail.length() > 0 ? View.VISIBLE : View.GONE);
+
+        s24BatteryBar.setProgress(level);
+        // Reduced AOD stays as light as possible: text only, no progress-bar refresh.
+        s24BatteryBar.setVisibility(reduced ? View.GONE : View.VISIBLE);
+    }
+
+    private void showS24BatteryPanel(Context context) {
+        ensureS24BatteryPanel(context);
+        updateS24BatteryPanel(context);
+
+        boolean reduced = settings.isS24ReducedAOD();
+
+        if (s24BatteryPanelAdded) {
+            WindowManager.LayoutParams current =
+                    (WindowManager.LayoutParams)s24BatteryPanel.getLayoutParams();
+            int wantedHeight = s24dp(reduced ? 70f : 54f);
+            if (current.height != wantedHeight) {
+                current.height = wantedHeight;
+                try {
+                    windowManager.updateViewLayout(s24BatteryPanel, current);
+                } catch (Exception ignored) {
+                }
+            }
+            return;
+        }
+
+        WindowManager.LayoutParams p = new WindowManager.LayoutParams(
+                s24dp(190f),
+                s24dp(reduced ? 70f : 54f),
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                  WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT
+        );
+
+        // The S24 fingerprint target sits above this region. Keeping the panel
+        // centered but low gives the requested order: fingerprint -> time (optional)
+        // -> battery, without covering the ultrasonic sensor itself.
+        p.gravity = Gravity.CENTER_HORIZONTAL | Gravity.BOTTOM;
+        p.x = 0;
+        p.y = s24dp(46f);
+        p.setTitle("HoleyLight S24 Bottom Info");
+        if (windowToken != null) p.token = windowToken;
+
+        try {
+            windowManager.addView(s24BatteryPanel, p);
+            s24BatteryPanelAdded = true;
+            handler.removeCallbacks(s24BatteryTicker);
+            handler.postDelayed(s24BatteryTicker, 60000L);
+        } catch (Exception e) {
+            e.printStackTrace();
+            s24BatteryPanelAdded = false;
+        }
+    }
+
+'''
+t = t[:start] + new_methods + t[end:]
+
+old = '''    private void hideS24BatteryPanel() {
+        if (!s24BatteryPanelAdded || s24BatteryPanel == null) return;
+        try {
+            windowManager.removeView(s24BatteryPanel);
+        } catch (Exception ignored) {
+        }
+        s24BatteryPanelAdded = false;
+    }'''
+new = '''    private void hideS24BatteryPanel() {
+        handler.removeCallbacks(s24BatteryTicker);
+        if (!s24BatteryPanelAdded || s24BatteryPanel == null) return;
+        try {
+            windowManager.removeView(s24BatteryPanel);
+        } catch (Exception ignored) {
+        }
+        s24BatteryPanelAdded = false;
+    }'''
+if old not in t:
+    raise SystemExit("hideS24BatteryPanel block not found")
+t = t.replace(old, new, 1)
+
+old = '''        // Exact user-requested behavior: only when there are NO notification
+        // colors and the partial AOD profile is selected. Notifications keep
+        // using the untouched 7741fc7d animation path.
+        boolean showBatteryAtSide =
+                !haveColors &&
+                settings.isHideAOD() &&
+                !settings.isHideAODFully() &&
+                (doze || !on);
+
+        if (showBatteryAtSide) {
+            showS24BatteryPanel(context);
+        } else {
+            hideS24BatteryPanel();
+        }'''
+new = '''        // Only when there are NO notifications and the partial S24 AOD profile
+        // is active. Notifications keep using the untouched 7741fc7d animation path.
+        boolean showBottomInfo =
+                !haveColors &&
+                settings.isHideAOD() &&
+                !settings.isHideAODFully() &&
+                (doze || !on);
+
+        if (showBottomInfo) {
+            showS24BatteryPanel(context);
+        } else {
+            hideS24BatteryPanel();
+        }'''
+if old not in t:
+    raise SystemExit("showBatteryAtSide block not found")
+t = t.replace(old, new, 1)
+
+overlay.write_text(t, encoding="utf-8")
+
+# --- Add the reduced-AOD choice to the S24 profile selector.
+frag = Path("upstream/app/src/main/java/eu/chainfire/holeylight/ui/SettingsFragment.java")
+t = frag.read_text(encoding="utf-8")
+
+old = '''            if (!settings.isHideAOD()) {
+                summary = "AOD Samsung completo";
+            } else if (settings.isHideAODFully()) {
+                summary = "Vortice minimale";
+            } else {
+                summary = "Impronta + batteria";
+            }'''
+new = '''            if (!settings.isHideAOD()) {
+                summary = "AOD Samsung completo";
+            } else if (settings.isHideAODFully()) {
+                summary = "Vortice minimale";
+            } else if (settings.isS24ReducedAOD()) {
+                summary = "AOD ridotto";
+            } else {
+                summary = "Impronta + batteria";
+            }'''
+if old not in t:
+    raise SystemExit("final S24 profile summary block not found")
+t = t.replace(old, new, 1)
+
+old = '''                    .setItems(new CharSequence[] {
+                            "AOD Samsung completo\nOrologio e contenuti One UI visibili",
+                            "Impronta + batteria\nSchermo nero, impronta Samsung e batteria disegnata da Holey Light",
+                            "Vortice minimale\nSchermo nero e vortice; l'impronta può restare se One UI è impostata per mostrarla"
+                    }, (dialog, which) -> {
+                        switch (which) {
+                            case 0:
+                                settings.setHideAOD(false, false);
+                                settings.setShowAODClock(false);
+                                break;
+                            case 1:
+                                settings.setHideAOD(true, false);
+                                settings.setShowAODClock(false);
+                                break;
+                            case 2:
+                                settings.setHideAOD(true, true);
+                                settings.setShowAODClock(false);
+                                break;
+                        }'''
+new = '''                    .setItems(new CharSequence[] {
+                            "AOD Samsung completo\nOrologio e contenuti One UI visibili",
+                            "Impronta + batteria\nImpronta Samsung; sotto percentuale e autonomia/carica",
+                            "AOD ridotto\nImpronta; sotto ora piccola e informazioni batteria",
+                            "Vortice minimale\nSchermo nero e vortice; l'impronta può restare se One UI è impostata per mostrarla"
+                    }, (dialog, which) -> {
+                        switch (which) {
+                            case 0:
+                                settings.setS24ReducedAOD(false);
+                                settings.setHideAOD(false, false);
+                                settings.setShowAODClock(false);
+                                break;
+                            case 1:
+                                settings.setS24ReducedAOD(false);
+                                settings.setHideAOD(true, false);
+                                settings.setShowAODClock(false);
+                                break;
+                            case 2:
+                                settings.setS24ReducedAOD(true);
+                                settings.setHideAOD(true, false);
+                                settings.setShowAODClock(false);
+                                break;
+                            case 3:
+                                settings.setS24ReducedAOD(false);
+                                settings.setHideAOD(true, true);
+                                settings.setShowAODClock(false);
+                                break;
+                        }'''
+if old not in t:
+    raise SystemExit("final S24 profile items block not found")
+t = t.replace(old, new, 1)
+
+frag.write_text(t, encoding="utf-8")
+
+print("Added bottom-centered battery info and S24 reduced AOD mode")
