@@ -2221,3 +2221,206 @@ t = t.replace(anchor, block, 1)
 frag.write_text(t, encoding="utf-8")
 
 print("Added ColorChase/ArcSweep/Spark, presets and per-app effects")
+
+
+# 22) Minimal fix from known-good 7741fc7d build:
+# move battery info OUT of the camera SurfaceView and place it in a tiny
+# independent side overlay, away from the S24 fingerprint sensor.
+#
+# No other AOD behavior is changed in this pass.
+
+# --- Stop drawing battery percentage/bar inside the camera SurfaceView.
+sprite = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/SpritePlayer.java")
+t = sprite.read_text(encoding="utf-8")
+
+start = t.find('''        // S24 partial-AOD profile: Holey Light owns the battery indicator so it''')
+if start == -1:
+    raise SystemExit("battery render block start not found")
+end = t.find('''        if (isTSPMode()) {''', start)
+if end == -1:
+    raise SystemExit("battery render block end not found")
+t = t[:start] + t[end:]
+sprite.write_text(t, encoding="utf-8")
+
+# --- Render battery status in a small side window, only with no notifications.
+overlay = Path("upstream/app/src/main/java/eu/chainfire/holeylight/animation/Overlay.java")
+t = overlay.read_text(encoding="utf-8")
+
+needle = '''    private boolean added = false;
+    private final ResolutionTracker resolutionTracker;'''
+replacement = '''    private boolean added = false;
+
+    // S24 battery status panel: a very small independent overlay positioned
+    // to the RIGHT of the ultrasonic fingerprint target. It never spans the
+    // center of the screen, so One UI can keep rendering the fingerprint icon.
+    private android.widget.LinearLayout s24BatteryPanel = null;
+    private android.widget.TextView s24BatteryText = null;
+    private android.widget.ProgressBar s24BatteryBar = null;
+    private boolean s24BatteryPanelAdded = false;
+
+    private final ResolutionTracker resolutionTracker;'''
+if needle not in t:
+    raise SystemExit("Overlay fields anchor not found")
+t = t.replace(needle, replacement, 1)
+
+needle = '''    private void updateParams() {
+        if (terminated) return;
+        animation.applyDimensions();
+    }
+
+    private void createOverlay() {'''
+replacement = '''    private int s24dp(float value) {
+        return Math.round(android.util.TypedValue.applyDimension(
+                android.util.TypedValue.COMPLEX_UNIT_DIP,
+                value,
+                spritePlayer.getContext().getResources().getDisplayMetrics()
+        ));
+    }
+
+    private void ensureS24BatteryPanel(Context context) {
+        if (s24BatteryPanel != null) return;
+
+        s24BatteryPanel = new android.widget.LinearLayout(context);
+        s24BatteryPanel.setOrientation(android.widget.LinearLayout.VERTICAL);
+        s24BatteryPanel.setGravity(Gravity.CENTER);
+        s24BatteryPanel.setBackgroundColor(Color.TRANSPARENT);
+
+        s24BatteryText = new android.widget.TextView(context);
+        s24BatteryText.setTextColor(Color.WHITE);
+        s24BatteryText.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 10f);
+        s24BatteryText.setGravity(Gravity.CENTER);
+        s24BatteryText.setIncludeFontPadding(false);
+        s24BatteryPanel.addView(
+                s24BatteryText,
+                new android.widget.LinearLayout.LayoutParams(
+                        s24dp(92f),
+                        android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+        );
+
+        s24BatteryBar = new android.widget.ProgressBar(
+                context,
+                null,
+                android.R.attr.progressBarStyleHorizontal
+        );
+        s24BatteryBar.setIndeterminate(false);
+        s24BatteryBar.setMax(100);
+        s24BatteryBar.setProgressTintList(
+                android.content.res.ColorStateList.valueOf(Color.WHITE)
+        );
+        s24BatteryBar.setProgressBackgroundTintList(
+                android.content.res.ColorStateList.valueOf(0x44FFFFFF)
+        );
+
+        android.widget.LinearLayout.LayoutParams barParams =
+                new android.widget.LinearLayout.LayoutParams(
+                        s24dp(72f),
+                        Math.max(2, s24dp(3f))
+                );
+        barParams.topMargin = s24dp(4f);
+        s24BatteryPanel.addView(s24BatteryBar, barParams);
+    }
+
+    private void showS24BatteryPanel(Context context) {
+        ensureS24BatteryPanel(context);
+
+        android.os.BatteryManager bm =
+                (android.os.BatteryManager)context.getSystemService(Context.BATTERY_SERVICE);
+        int level = bm == null
+                ? -1
+                : bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY);
+        if (level < 0 || level > 100) {
+            hideS24BatteryPanel();
+            return;
+        }
+
+        s24BatteryText.setText(level + "%");
+        s24BatteryBar.setProgress(level);
+
+        if (s24BatteryPanelAdded) return;
+
+        WindowManager.LayoutParams p = new WindowManager.LayoutParams(
+                s24dp(100f),
+                s24dp(34f),
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                  WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+                | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                PixelFormat.TRANSLUCENT
+        );
+        // Keep this tiny window on the far right, level with the fingerprint
+        // region but not covering the center sensor target.
+        p.gravity = Gravity.RIGHT | Gravity.BOTTOM;
+        p.x = s24dp(12f);
+        p.y = s24dp(155f);
+        p.setTitle("HoleyLight S24 Battery Side");
+        if (windowToken != null) p.token = windowToken;
+
+        try {
+            windowManager.addView(s24BatteryPanel, p);
+            s24BatteryPanelAdded = true;
+        } catch (Exception e) {
+            e.printStackTrace();
+            s24BatteryPanelAdded = false;
+        }
+    }
+
+    private void hideS24BatteryPanel() {
+        if (!s24BatteryPanelAdded || s24BatteryPanel == null) return;
+        try {
+            windowManager.removeView(s24BatteryPanel);
+        } catch (Exception ignored) {
+        }
+        s24BatteryPanelAdded = false;
+    }
+
+    private void updateParams() {
+        if (terminated) return;
+        animation.applyDimensions();
+    }
+
+    private void createOverlay() {'''
+if needle not in t:
+    raise SystemExit("Overlay helper insertion anchor not found")
+t = t.replace(needle, replacement, 1)
+
+needle = '''        boolean hideAODEffective = activeHide || isHideAODAndDoze;
+
+        if (forceRefresh) log("Force refresh");'''
+replacement = '''        boolean hideAODEffective = activeHide || isHideAODAndDoze;
+
+        // Exact user-requested behavior: only when there are NO notification
+        // colors and the partial AOD profile is selected. Notifications keep
+        // using the untouched 7741fc7d animation path.
+        boolean showBatteryAtSide =
+                !haveColors &&
+                settings.isHideAOD() &&
+                !settings.isHideAODFully() &&
+                (doze || !on);
+
+        if (showBatteryAtSide) {
+            showS24BatteryPanel(context);
+        } else {
+            hideS24BatteryPanel();
+        }
+
+        if (forceRefresh) log("Force refresh");'''
+if needle not in t:
+    raise SystemExit("Overlay evaluate battery anchor not found")
+t = t.replace(needle, replacement, 1)
+
+old = '''            if (animation.isPlaying()) animation.stop(true);
+            removeOverlay();
+            animation = null;'''
+new = '''            if (animation.isPlaying()) animation.stop(true);
+            removeOverlay();
+            hideS24BatteryPanel();
+            animation = null;'''
+if old not in t:
+    raise SystemExit("Overlay shutdown cleanup anchor not found")
+t = t.replace(old, new, 1)
+
+overlay.write_text(t, encoding="utf-8")
+
+print("Moved no-notification battery info to a tiny side panel; 7741 base otherwise unchanged")
