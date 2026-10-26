@@ -1,11 +1,9 @@
-# Qin Display Diagnostica 0.2 (read-only)
-La versione 0.1 carica la classe MediaTek ma non trova i metodi `get...` con reflection.
-Questa versione verifica `getDeclaredMethods`, `getMethod`, `getDeclaredMethod` e prova a leggere solo getter statici senza argomenti quando sono esposti.
+# Qin Display Diagnostica 0.3 — test finale compatibilità
 
-Nessuna modifica al sistema. Nessun metodo di scrittura, root, overlay, concessione di permessi o rete.
+Android del telefono non viene modificato. La build di questa app **ha targetSdk 28** per provare se i metodi MediaTek PictureQuality, invisibili a un'app targetSdk 34, sono condizionalmente limitati dal target SDK.
 
-Se Android 14 non espone i metodi, questo e' un risultato corretto. Le restrizioni sulle API non-SDK possono rendere `NoSuchMethodException` il risultato previsto.
+Le API in blocklist assoluta resteranno inaccessibili anche a targetSdk 28. La 0.3 legge solamente i metodi get..., non usa setter, non scrive impostazioni, non modifica permessi o protezioni di Android e non richiede root.
 
-`releases/Qin-Display-Diagnostica-0.2.apk` e' una APK debug costruita automaticamente da GitHub Actions.
+App package differente dalla 0.1 e 0.2, per evitare collisioni di firma o update. Puoi disinstallare le precedenti senza alcuna modifica al sistema.
 
-La v0.2 ha un applicationId distinto, per evitare problemi di firma tra esecuzioni separate della CI. Puoi disinstallare la 0.1 quando preferisci.
+APK compilata e pubblicata da GitHub Actions in releases/Qin-Display-Diagnostica-0.3.apk.

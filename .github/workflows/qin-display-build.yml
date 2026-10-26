@@ -28,18 +28,18 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Qin-Display-Diagnostica-0.2
+          name: Qin-Display-Diagnostica-0.3
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
       - name: Publish direct-download APK
         run: |
           mkdir -p releases
-          cp app/build/outputs/apk/debug/app-debug.apk releases/Qin-Display-Diagnostica-0.2.apk
-          sha256sum releases/Qin-Display-Diagnostica-0.2.apk > releases/SHA256-0.2.txt
+          cp app/build/outputs/apk/debug/app-debug.apk releases/Qin-Display-Diagnostica-0.3.apk
+          sha256sum releases/Qin-Display-Diagnostica-0.3.apk > releases/SHA256-0.3.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add releases/Qin-Display-Diagnostica-0.2.apk releases/SHA256-0.2.txt
+          git add releases/Qin-Display-Diagnostica-0.3.apk releases/SHA256-0.3.txt
           if ! git diff --cached --quiet; then
-            git commit -m "Build Qin Display Diagnostica 0.2 APK"
+            git commit -m "Build Qin Display Diagnostica 0.3 APK"
             git push origin HEAD:qin-display-diagnostica
           fi

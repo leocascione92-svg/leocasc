@@ -49,7 +49,7 @@ public final class MainActivity extends Activity {
         TextView title = text("QIN DISPLAY", 24, fg);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         column.addView(title);
-        column.addView(text("MiraVision · Diagnostica 0.2", 16, Color.rgb(181, 204, 219)));
+        column.addView(text("MiraVision · Diagnostica 0.3", 16, Color.rgb(181, 204, 219)));
         TextView description = text("SOLA LETTURA. Controlla la visibilità dei metodi MediaTek e le restrizioni di Android 14. Non cambia alcuna impostazione.", 14, fg);
         description.setPadding(0, dp(16), 0, dp(16));
         column.addView(description);
@@ -86,7 +86,7 @@ public final class MainActivity extends Activity {
         copyButton.setOnClickListener(v -> {
             ClipboardManager clip = (ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
             if (clip != null) {
-                clip.setPrimaryClip(ClipData.newPlainText("Qin Display 0.2", lastReport));
+                clip.setPrimaryClip(ClipData.newPlainText("Qin Display 0.3", lastReport));
                 Toast.makeText(this, "Diagnosi copiata", Toast.LENGTH_SHORT).show();
             }
         });
@@ -94,10 +94,10 @@ public final class MainActivity extends Activity {
 
     private String diagnosticReport() {
         StringBuilder sb = new StringBuilder();
-        sb.append("QIN DISPLAY DIAGNOSTICA 0.2\nSOLA LETTURA\n\n");
+        sb.append("QIN DISPLAY DIAGNOSTICA 0.3\nSOLA LETTURA\n\n");
         sb.append("Modello: ").append(Build.MODEL).append("\n");
         sb.append("Android: ").append(Build.VERSION.RELEASE).append("\n");
-        sb.append("targetSdk: ").append(getApplicationInfo().targetSdkVersion).append("\n\n");
+        sb.append("targetSdk (compatibilità): ").append(getApplicationInfo().targetSdkVersion).append("\n\n");
 
         try {
             PackageInfo info = getPackageManager().getPackageInfo("com.mediatek.miravision.ui", 0);
