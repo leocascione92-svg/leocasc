@@ -2767,11 +2767,21 @@ if old not in t:
 t = t.replace(old, new, 1)
 
 old = '''                    .setItems(new CharSequence[] {
-                            "AOD Samsung completo\nOrologio e contenuti One UI visibili",
-                            "Impronta + batteria\nSchermo nero, impronta Samsung e batteria disegnata da Holey Light",
-                            "Vortice minimale\nSchermo nero e vortice; l'impronta può restare se One UI è impostata per mostrarla"
-                    }, (dialog, which) -> {
-                        switch (which) {
+                            "AOD Samsung completo\\nOrologio e contenuti One UI visibili",
+                            "Impronta + batteria\\nSchermo nero, impronta Samsung e batteria disegnata da Holey Light",
+                            "Vortice minimale\\nSchermo nero e vortice; l'impronta può restare se One UI è impostata per mostrarla"
+                    }, (dialog, which) -> {'''
+new = '''                    .setItems(new CharSequence[] {
+                            "AOD Samsung completo\\nOrologio e contenuti One UI visibili",
+                            "Impronta + batteria\\nImpronta Samsung; sotto percentuale e autonomia/carica",
+                            "AOD ridotto\\nImpronta; sotto ora piccola e informazioni batteria",
+                            "Vortice minimale\\nSchermo nero e vortice; l'impronta può restare se One UI è impostata per mostrarla"
+                    }, (dialog, which) -> {'''
+if old not in t:
+    raise SystemExit("final S24 profile list block not found")
+t = t.replace(old, new, 1)
+
+old = '''                        switch (which) {
                             case 0:
                                 settings.setHideAOD(false, false);
                                 settings.setShowAODClock(false);
@@ -2785,13 +2795,7 @@ old = '''                    .setItems(new CharSequence[] {
                                 settings.setShowAODClock(false);
                                 break;
                         }'''
-new = '''                    .setItems(new CharSequence[] {
-                            "AOD Samsung completo\nOrologio e contenuti One UI visibili",
-                            "Impronta + batteria\nImpronta Samsung; sotto percentuale e autonomia/carica",
-                            "AOD ridotto\nImpronta; sotto ora piccola e informazioni batteria",
-                            "Vortice minimale\nSchermo nero e vortice; l'impronta può restare se One UI è impostata per mostrarla"
-                    }, (dialog, which) -> {
-                        switch (which) {
+new = '''                        switch (which) {
                             case 0:
                                 settings.setS24ReducedAOD(false);
                                 settings.setHideAOD(false, false);
@@ -2814,7 +2818,7 @@ new = '''                    .setItems(new CharSequence[] {
                                 break;
                         }'''
 if old not in t:
-    raise SystemExit("final S24 profile items block not found")
+    raise SystemExit("final S24 profile switch block not found")
 t = t.replace(old, new, 1)
 
 frag.write_text(t, encoding="utf-8")
