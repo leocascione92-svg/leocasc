@@ -2723,13 +2723,13 @@ old = '''        // Exact user-requested behavior: only when there are NO notifi
         } else {
             hideS24BatteryPanel();
         }'''
-new = '''        // Only when there are NO notifications and the partial S24 AOD profile
-        // is active. Notifications keep using the untouched 7741fc7d animation path.
+new = '''        // Keep the lower info panel independent from notification state.
+        // The camera-hole animation remains responsible for notifications;
+        // battery/time stay visible throughout the partial S24 AOD mode.
         boolean showBottomInfo =
-                !haveColors &&
                 settings.isHideAOD() &&
                 !settings.isHideAODFully() &&
-                (doze || !on);
+                (doze || !on || activeHide);
 
         if (showBottomInfo) {
             showS24BatteryPanel(context);
