@@ -3,11 +3,11 @@ android {
     namespace 'it.qin.displaydiagnostica'
     compileSdk 34
     defaultConfig {
-        applicationId 'it.qin.displaydiagnostica.v03'
+        applicationId 'it.qin.displaydiagnostica.v04'
         minSdk 26
-        targetSdk 28
-        versionCode 3
-        versionName '0.3'
+        targetSdk 34
+        versionCode 4
+        versionName '0.4'
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
