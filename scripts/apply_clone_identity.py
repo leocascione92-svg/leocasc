@@ -2603,7 +2603,7 @@ new_methods = '''    private void ensureS24BatteryPanel(Context context) {
         boolean charging = Battery.isCharging(context);
         boolean reduced = settings.isS24ReducedAOD();
 
-        s24ClockText.setVisibility(reduced ? View.VISIBLE : View.GONE);
+        s24ClockText.setVisibility(reduced ? android.view.View.VISIBLE : android.view.View.GONE);
         if (reduced) {
             java.text.SimpleDateFormat sdf =
                     new java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault());
@@ -2627,11 +2627,11 @@ new_methods = '''    private void ensureS24BatteryPanel(Context context) {
             detail = charging ? "In carica" : "";
         }
         s24BatteryDetail.setText(detail);
-        s24BatteryDetail.setVisibility(detail.length() > 0 ? View.VISIBLE : View.GONE);
+        s24BatteryDetail.setVisibility(detail.length() > 0 ? android.view.View.VISIBLE : android.view.View.GONE);
 
         s24BatteryBar.setProgress(level);
         // Reduced AOD stays as light as possible: text only, no progress-bar refresh.
-        s24BatteryBar.setVisibility(reduced ? View.GONE : View.VISIBLE);
+        s24BatteryBar.setVisibility(reduced ? android.view.View.GONE : android.view.View.VISIBLE);
     }
 
     private void showS24BatteryPanel(Context context) {
