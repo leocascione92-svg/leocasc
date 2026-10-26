@@ -2515,7 +2515,7 @@ new_methods = '''    private void ensureS24BatteryPanel(Context context) {
         s24BatteryPanel.addView(
                 s24ClockText,
                 new android.widget.LinearLayout.LayoutParams(
-                        s24dp(180f),
+                        s24dp(138f),
                         android.view.ViewGroup.LayoutParams.WRAP_CONTENT
                 )
         );
@@ -2528,7 +2528,7 @@ new_methods = '''    private void ensureS24BatteryPanel(Context context) {
         s24BatteryPanel.addView(
                 s24BatteryText,
                 new android.widget.LinearLayout.LayoutParams(
-                        s24dp(180f),
+                        s24dp(138f),
                         android.view.ViewGroup.LayoutParams.WRAP_CONTENT
                 )
         );
@@ -2540,7 +2540,7 @@ new_methods = '''    private void ensureS24BatteryPanel(Context context) {
         s24BatteryDetail.setIncludeFontPadding(false);
         android.widget.LinearLayout.LayoutParams detailParams =
                 new android.widget.LinearLayout.LayoutParams(
-                        s24dp(180f),
+                        s24dp(138f),
                         android.view.ViewGroup.LayoutParams.WRAP_CONTENT
                 );
         detailParams.topMargin = s24dp(2f);
@@ -2655,7 +2655,7 @@ new_methods = '''    private void ensureS24BatteryPanel(Context context) {
         }
 
         WindowManager.LayoutParams p = new WindowManager.LayoutParams(
-                s24dp(190f),
+                s24dp(145f),
                 s24dp(reduced ? 70f : 54f),
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                   WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
@@ -2665,13 +2665,14 @@ new_methods = '''    private void ensureS24BatteryPanel(Context context) {
                 PixelFormat.TRANSLUCENT
         );
 
-        // The S24 fingerprint target sits above this region. Keeping the panel
-        // centered but low gives the requested order: fingerprint -> time (optional)
-        // -> battery, without covering the ultrasonic sensor itself.
-        p.gravity = Gravity.CENTER_HORIZONTAL | Gravity.BOTTOM;
-        p.x = 0;
-        p.y = s24dp(46f);
-        p.setTitle("HoleyLight S24 Bottom Info");
+        // One UI suppresses accessibility overlays that cross the ultrasonic
+        // fingerprint target. Keep the panel BELOW the fingerprint but offset
+        // to the right, with its entire window outside the protected center zone.
+        // This preserves the known-good behavior of the previous side-panel build.
+        p.gravity = Gravity.RIGHT | Gravity.BOTTOM;
+        p.x = s24dp(12f);
+        p.y = s24dp(72f);
+        p.setTitle("HoleyLight S24 Bottom Right Info");
         if (windowToken != null) p.token = windowToken;
 
         try {
