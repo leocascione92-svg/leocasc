@@ -9,7 +9,7 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.Build;
 import android.os.Bundle;
-import android.view.Gravity;
+import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -20,134 +20,185 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 
-/** Only reflective getters: never calls MediaTek set* functions or changes Android settings. */
+/**
+ * Read-only vendor API probe. No setter, accessibility service, privileged permission,
+ * overlay, or device configuration change is used.
+ */
 public final class MainActivity extends Activity {
-    private TextView result;
-    private Button run, copy;
-    private String report = "";
-    private int dp(int n) { return (int)(n * getResources().getDisplayMetrics().density + 0.5f); }
-    private TextView makeText(String text, int size, int color) {
-        TextView t = new TextView(this);
-        t.setText(text); t.setTextSize(size); t.setTextColor(color); return t;
+    private TextView reportView;
+    private Button runButton, copyButton;
+    private String lastReport = "";
+    private int dp(int n) {
+        return (int)(getResources().getDisplayMetrics().density * n + 0.5f);
     }
+    private TextView text(String value, int size, int color) {
+        TextView t = new TextView(this);
+        t.setText(value); t.setTextSize(size); t.setTextColor(color); return t;
+    }
+    @Override public void onCreate(Bundle saved) {
+        super.onCreate(saved);
+        final int fg = Color.rgb(236, 237, 234);
+        ScrollView screen = new ScrollView(this);
+        screen.setFillViewport(true);
+        screen.setBackgroundColor(Color.rgb(45, 49, 52));
+        LinearLayout column = new LinearLayout(this);
+        column.setOrientation(LinearLayout.VERTICAL);
+        column.setPadding(dp(16), dp(18), dp(16), dp(20));
+        screen.addView(column);
 
-    @Override public void onCreate(Bundle state) {
-        super.onCreate(state);
-        int bg = Color.rgb(43, 47, 51), fg = Color.rgb(232, 233, 229);
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(true);
-        scroll.setBackgroundColor(bg);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(16), dp(18), dp(16), dp(20));
-        scroll.addView(root);
-
-        TextView title = makeText("QIN DISPLAY", 23, fg);
+        TextView title = text("QIN DISPLAY", 24, fg);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        root.addView(title);
-        TextView label = makeText("Diagnostica MiraVision 0.1", 15, Color.rgb(174, 197, 209));
-        root.addView(label);
-        TextView notice = makeText("SOLA LETTURA · Nessun root, permesso speciale o cambio colori. Verifica l'accesso alle API MediaTek originali.", 14, fg);
-        notice.setPadding(0, dp(14), 0, dp(12));
-        root.addView(notice);
+        column.addView(title);
+        column.addView(text("MiraVision · Diagnostica 0.2", 16, Color.rgb(181, 204, 219)));
+        TextView description = text("SOLA LETTURA. Controlla la visibilità dei metodi MediaTek e le restrizioni di Android 14. Non cambia alcuna impostazione.", 14, fg);
+        description.setPadding(0, dp(16), 0, dp(16));
+        column.addView(description);
 
-        run = new Button(this); run.setText("ESEGUI DIAGNOSI");
-        root.addView(run, new LinearLayout.LayoutParams(-1, -2));
-        copy = new Button(this); copy.setText("COPIA RISULTATO"); copy.setEnabled(false);
-        root.addView(copy, new LinearLayout.LayoutParams(-1, -2));
+        runButton = new Button(this); runButton.setText("ESEGUI DIAGNOSI");
+        column.addView(runButton, new LinearLayout.LayoutParams(-1, -2));
+        copyButton = new Button(this); copyButton.setText("COPIA RISULTATO");
+        copyButton.setEnabled(false);
+        column.addView(copyButton, new LinearLayout.LayoutParams(-1, -2));
 
-        result = makeText("Premi ESEGUI DIAGNOSI per leggere i dati. Non verra' modificata alcuna impostazione.", 14, fg);
-        result.setTypeface(Typeface.MONOSPACE);
-        result.setTextIsSelectable(true);
-        result.setBackgroundColor(Color.rgb(57, 63, 68));
-        result.setPadding(dp(12), dp(12), dp(12), dp(12));
-        LinearLayout.LayoutParams box = new LinearLayout.LayoutParams(-1, -2);
-        box.topMargin = dp(12);
-        root.addView(result, box);
-        setContentView(scroll);
+        reportView = text("Premi ESEGUI DIAGNOSI. Nessun parametro del display verrà modificato.", 14, fg);
+        reportView.setTypeface(Typeface.MONOSPACE);
+        reportView.setTextIsSelectable(true);
+        reportView.setBackgroundColor(Color.rgb(61, 66, 70));
+        reportView.setPadding(dp(12), dp(12), dp(12), dp(12));
+        LinearLayout.LayoutParams reportParams = new LinearLayout.LayoutParams(-1, -2);
+        reportParams.topMargin = dp(12);
+        column.addView(reportView, reportParams);
+        setContentView(screen);
 
-        run.setOnClickListener(v -> {
-            run.setEnabled(false); result.setText("Diagnosi in corso...");
+        runButton.setOnClickListener(v -> {
+            runButton.setEnabled(false);
+            reportView.setText("Diagnosi in corso...");
             new Thread(() -> {
-                final String text = diagnose();
+                String collected = diagnosticReport();
                 runOnUiThread(() -> {
-                    report = text; result.setText(report);
-                    run.setEnabled(true); copy.setEnabled(true);
+                    lastReport = collected;
+                    reportView.setText(collected);
+                    copyButton.setEnabled(true);
+                    runButton.setEnabled(true);
                 });
             }).start();
         });
-        copy.setOnClickListener(v -> {
-            ClipboardManager clipboard = (ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
-            if (clipboard != null) {
-                clipboard.setPrimaryClip(ClipData.newPlainText("Diagnostica MiraVision", report));
-                Toast.makeText(this, "Risultato copiato", Toast.LENGTH_SHORT).show();
+        copyButton.setOnClickListener(v -> {
+            ClipboardManager clip = (ClipboardManager)getSystemService(Context.CLIPBOARD_SERVICE);
+            if (clip != null) {
+                clip.setPrimaryClip(ClipData.newPlainText("Qin Display 0.2", lastReport));
+                Toast.makeText(this, "Diagnosi copiata", Toast.LENGTH_SHORT).show();
             }
         });
     }
 
-    private String diagnose() {
-        StringBuilder out = new StringBuilder("QIN DISPLAY DIAGNOSTICA 0.1\nSolo lettura\n\n");
-        out.append("Modello: ").append(Build.MODEL).append("\nAndroid: ").append(Build.VERSION.RELEASE).append("\n\n");
+    private String diagnosticReport() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("QIN DISPLAY DIAGNOSTICA 0.2\nSOLA LETTURA\n\n");
+        sb.append("Modello: ").append(Build.MODEL).append("\n");
+        sb.append("Android: ").append(Build.VERSION.RELEASE).append("\n");
+        sb.append("targetSdk: ").append(getApplicationInfo().targetSdkVersion).append("\n\n");
+
         try {
-            PackageInfo p = getPackageManager().getPackageInfo("com.mediatek.miravision.ui", 0);
-            out.append("MiraVision: installata (versione ").append(p.versionName).append(")\n\n");
+            PackageInfo info = getPackageManager().getPackageInfo("com.mediatek.miravision.ui", 0);
+            sb.append("MiraVision: ").append(info.versionName).append("\n");
         } catch (Throwable e) {
-            out.append("MiraVision: non visibile (").append(error(e)).append(")\n\n");
+            sb.append("MiraVision: non rilevata (").append(err(e)).append(")\n");
         }
+
         Class<?> pq;
         try {
             pq = Class.forName("com.mediatek.pq.PictureQuality");
-            out.append("PictureQuality: classe accessibile\n");
+            sb.append("PictureQuality: classe trovata\n");
+            ClassLoader loader = pq.getClassLoader();
+            sb.append("ClassLoader: ").append(loader == null ? "bootstrap" : loader.getClass().getSimpleName()).append("\n");
         } catch (Throwable e) {
-            out.append("PictureQuality: NON ACCESSIBILE\n").append(error(e)).append("\n\n");
-            out.append("Il sistema non espone questa API alla nostra APK. Nessuna modifica effettuata.");
-            return out.toString();
+            sb.append("PictureQuality: classe NON accessibile\n").append(err(e)).append("\n");
+            return sb.toString();
         }
-        String[] names = {
-            "getCapability", "getPictureMode", "getContrastIndex", "getContrastIndexRange",
-            "getSaturationIndex", "getSaturationIndexRange", "getPicBrightnessIndex",
-            "getPicBrightnessIndexRange", "getGammaIndex", "getGammaIndexRange",
-            "getDynamicContrastIndex", "getDynamicContrastIndexRange",
-            "getSharpnessIndex", "getSharpnessIndexRange"
-        };
-        for (String name : names) {
-            out.append(name).append(": ");
+
+        Method[] declared;
+        try {
+            declared = pq.getDeclaredMethods();
+            sb.append("Metodi dichiarati visibili: ").append(declared.length).append("\n");
+            int shown = 0;
+            for (Method method : declared) {
+                if (shown++ >= 24) { sb.append("...\n"); break; }
+                sb.append("  ").append(method.getName()).append("() -> ").append(method.getReturnType().getSimpleName()).append("\n");
+            }
+        } catch (Throwable e) {
+            sb.append("getDeclaredMethods: ").append(err(e)).append("\n");
+        }
+        try {
+            sb.append("Metodi pubblici visibili: ").append(pq.getMethods().length).append("\n");
+        } catch (Throwable e) {
+            sb.append("getMethods: ").append(err(e)).append("\n");
+        }
+        sb.append("\nTEST LETTURA PROTETTA\n");
+        String[] requested = {"getCapability", "getPictureMode", "getContrastIndex", "getContrastIndexRange",
+                "getSaturationIndex", "getSaturationIndexRange", "getGammaIndex", "getGammaIndexRange",
+                "getPicBrightnessIndex", "getPicBrightnessIndexRange", "getSharpnessIndex", "getSharpnessIndexRange",
+                "getDynamicContrastIndex", "getDynamicContrastIndexRange"};
+        int accessible = 0;
+        for (String methodName : requested) {
+            sb.append(methodName).append(": ");
+            Method getter;
+            boolean declaredOnly = false;
             try {
-                Method m = pq.getMethod(name);
-                if (!Modifier.isStatic(m.getModifiers()) || m.getParameterTypes().length != 0) {
-                    out.append("firma non supportata\n"); continue;
+                getter = pq.getMethod(methodName);
+            } catch (NoSuchMethodException e) {
+                try {
+                    getter = pq.getDeclaredMethod(methodName);
+                    declaredOnly = true;
+                } catch (Throwable e2) {
+                    sb.append("NON visibile (getMethod e getDeclaredMethod)\n");
+                    continue;
                 }
-                Object val = m.invoke(null);
-                out.append(value(val)).append("\n");
-            } catch (Throwable e) { out.append(error(e)).append("\n"); }
+            } catch (Throwable e) {
+                sb.append(err(e)).append("\n");
+                continue;
+            }
+            if (!Modifier.isStatic(getter.getModifiers()) || getter.getParameterTypes().length != 0) {
+                sb.append("firma non invocabile\n");
+                continue;
+            }
+            sb.append(declaredOnly ? "dichiarato, " : "pubblico, ");
+            try {
+                if (declaredOnly && !getter.isAccessible()) getter.setAccessible(true);
+                Object result = getter.invoke(null);
+                accessible++;
+                sb.append("valore = ").append(format(result)).append("\n");
+            } catch (Throwable e) {
+                sb.append("lettura negata: ").append(err(e)).append("\n");
+            }
         }
-        out.append("\nNessun metodo set... chiamato. Nessun parametro modificato.");
-        return out.toString();
+        sb.append("\nMetodi letti correttamente: ").append(accessible).append("/").append(requested.length).append("\n");
+        sb.append("Nessun setter invocato. Nessuna impostazione modificata.");
+        return sb.toString();
     }
-    private static String value(Object value) {
+    private static String format(Object value) {
         if (value == null) return "null";
         if (value instanceof Number || value instanceof Boolean || value instanceof String)
-            return value.toString();
+            return String.valueOf(value);
         StringBuilder b = new StringBuilder(value.getClass().getSimpleName()).append("{");
         int count = 0;
-        for (Field f : value.getClass().getFields()) {
+        for (Field field : value.getClass().getFields()) {
             try {
-                Object v = f.get(value);
-                if (v instanceof Number || v instanceof Boolean || v instanceof String) {
+                Object member = field.get(value);
+                if (member instanceof Number || member instanceof Boolean || member instanceof String) {
                     if (count++ > 0) b.append(", ");
-                    b.append(f.getName()).append("=").append(v);
+                    b.append(field.getName()).append("=").append(member);
                 }
             } catch (Throwable ignored) {}
         }
         return b.append("}").toString();
     }
-    private static String error(Throwable e) {
-        if (e instanceof InvocationTargetException && e.getCause() != null) e = e.getCause();
-        String msg = e.getClass().getSimpleName();
-        if (e.getMessage() != null) {
-            String detail = e.getMessage();
-            if (detail.length() > 140) detail = detail.substring(0, 140);
-            msg += ": " + detail;
+    private static String err(Throwable t) {
+        if (t instanceof InvocationTargetException && t.getCause() != null) t = t.getCause();
+        String msg = t.getClass().getSimpleName();
+        if (t.getMessage() != null) {
+            String detail = t.getMessage();
+            msg += ": " + detail.substring(0, Math.min(detail.length(), 100));
         }
         return msg;
     }

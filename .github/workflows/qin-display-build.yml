@@ -23,23 +23,23 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
-      - name: Build diagnostica APK
+      - name: Build read-only APK
         run: gradle :app:assembleDebug --no-daemon
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Qin-Display-Diagnostica-0.1
+          name: Qin-Display-Diagnostica-0.2
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-      - name: Publish direct-download APK on dedicated branch
+      - name: Publish direct-download APK
         run: |
           mkdir -p releases
-          cp app/build/outputs/apk/debug/app-debug.apk releases/Qin-Display-Diagnostica-0.1.apk
-          sha256sum releases/Qin-Display-Diagnostica-0.1.apk > releases/SHA256.txt
+          cp app/build/outputs/apk/debug/app-debug.apk releases/Qin-Display-Diagnostica-0.2.apk
+          sha256sum releases/Qin-Display-Diagnostica-0.2.apk > releases/SHA256-0.2.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add releases/Qin-Display-Diagnostica-0.1.apk releases/SHA256.txt
+          git add releases/Qin-Display-Diagnostica-0.2.apk releases/SHA256-0.2.txt
           if ! git diff --cached --quiet; then
-            git commit -m "Build Qin Display Diagnostica APK"
+            git commit -m "Build Qin Display Diagnostica 0.2 APK"
             git push origin HEAD:qin-display-diagnostica
           fi

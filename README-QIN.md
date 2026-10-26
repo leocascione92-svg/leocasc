@@ -1,22 +1,11 @@
-# Qin Display Diagnostica 0.1
+# Qin Display Diagnostica 0.2 (read-only)
+La versione 0.1 carica la classe MediaTek ma non trova i metodi `get...` con reflection.
+Questa versione verifica `getDeclaredMethods`, `getMethod`, `getDeclaredMethod` e prova a leggere solo getter statici senza argomenti quando sono esposti.
 
-Prototipo per Qin F25 Pro con Android 14. **Sola lettura.**
+Nessuna modifica al sistema. Nessun metodo di scrittura, root, overlay, concessione di permessi o rete.
 
-- Non richiede root.
-- Non chiede permessi speciali, accesso Internet, accessibilità o sovrapposizioni.
-- Non modifica la saturazione, la gamma o il contrasto.
-- Verifica se `com.mediatek.pq.PictureQuality` è accessibile da una comune APK.
-- Tenta unicamente le chiamate ai metodi `get...` per raccogliere un rapporto copiabile.
+Se Android 14 non espone i metodi, questo e' un risultato corretto. Le restrizioni sulle API non-SDK possono rendere `NoSuchMethodException` il risultato previsto.
 
-Il messaggio 'PictureQuality: NON ACCESSIBILE' è un risultato diagnostico valido,
-non un errore da aggirare con strumenti invasivi.
+`releases/Qin-Display-Diagnostica-0.2.apk` e' una APK debug costruita automaticamente da GitHub Actions.
 
-## APK
-
-Il workflow GitHub Actions compila la APK di debug e, se dispone dei permessi
-necessari, la pubblica in `releases/Qin-Display-Diagnostica-0.1.apk`
-su questo ramo dedicato.
-
-La APK di debug è firmata automaticamente da Android Gradle Plugin ed è installabile
-come normale applicazione. Non installare altre MiraVision APK in sostituzione
-dell'originale.
+La v0.2 ha un applicationId distinto, per evitare problemi di firma tra esecuzioni separate della CI. Puoi disinstallare la 0.1 quando preferisci.
