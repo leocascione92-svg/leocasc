@@ -45,11 +45,15 @@ jobs:
         working-directory: LocationLab
         run: gradle --no-daemon --stacktrace :app:assembleDebug
       - name: Rename APK
-        run: cp LocationLab/app/build/outputs/apk/debug/app-debug.apk LocationLab-v0.4-debug.apk
+        run: cp LocationLab/app/build/outputs/apk/debug/app-debug.apk LocationLab-1.0.apk
+      - name: Verify APK signature and package metadata
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose LocationLab-1.0.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging LocationLab-1.0.apk | head -n 8
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: LocationLab-v0.4-debug
-          path: LocationLab-v0.4-debug.apk
+          name: LocationLab-1.0-APK
+          path: LocationLab-1.0.apk
           if-no-files-found: error
           retention-days: 90

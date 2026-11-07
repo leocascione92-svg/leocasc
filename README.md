@@ -1,17 +1,20 @@
-# LocationLab 0.3 — Android GPS Mock senza pubblicita
+# LocationLab 1.0 — versione finale
 
-App indipendente senza SDK pubblicitari né associazioni ai file .p7m.
+App Android indipendente per posizioni GPS simulate, senza pubblicita e senza associazioni con file PDF, P7M o documenti. Theme scuro e mappe OpenStreetMap con cache.
 
-## Novita 0.3
-- ACCESS_MOCK_LOCATION nel manifest: l'app appare in Opzioni sviluppatore > App per posizione fittizia.
-- Tema scuro e interfaccia compatta con pannello che rispetta la barra di navigazione.
-- Mappa con zoom continuo, scorrimento fluido e inerzia; modalita chiara/scura dal menu.
-- Preferiti, coordinate, ricerca, cronologia e avvio/arresto simulazione GPS.
+## Novita della versione finale
+- **Apri in Maps**: usa il punto scelto sulla mappa.
+- **Esporta preferiti / Importa preferiti**: menu ⋮. Backup LocationLab-preferiti.json con Storage Access Framework, senza permessi di archiviazione. Importa senza cancellare i preferiti precedenti, con deduplicazione.
+- **Torna alla posizione reale**: pulsante ◎ sotto lo zoom. Richiede permesso di localizzazione preciso, ignora coordinate mock e richiede di interrompere la simulazione per distinguere posizione reale e fittizia.
 
-## APK
-Apri Actions > LocationLab Android APK e scarica l'artefatto LocationLab-v0.3-debug (APK contenuto nello ZIP) da una build riuscita.
-L'applicationId rimane it.locationlab.app. La firma debug della compilazione GitHub puo cambiare tra i runner: se l'aggiornamento non viene accettato, disinstalla la versione precedente (i dati locali andranno perduti) e installa la nuova.
+## Compilazione e download
+Aprire Actions → LocationLab Android APK → ultima compilazione verde → Artifacts → LocationLab-1.0-APK. Nello ZIP è presente LocationLab-1.0.apk.
 
-## Sorgenti
-La cartella del progetto e contenuta nell'archivio LocationLab-source.tar.xz, estratto automaticamente dal workflow GitHub Actions.
-Le mappe sono © OpenStreetMap contributors, con cache locale per almeno sette giorni.
+## Installazione
+1. Consenti installazione di APK dalla fonte scelta.
+2. Apri Opzioni sviluppatore → App per posizione fittizia → LocationLab.
+3. Verifica la simulazione prima di disinstallare un eventuale altro GPS Emulator.
+
+*Avvertenza aggiornamenti*: le build debug GitHub potrebbero essere firmate con chiavi diverse. Se un aggiornamento non si installa, il dispositivo potrebbe richiedere la disinstallazione precedente: questa cancella preferiti e dati locali non esportati. Per le successive versioni occorre una firma persistente.
+
+© OpenStreetMap contributors.
