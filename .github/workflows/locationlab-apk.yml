@@ -33,6 +33,14 @@ jobs:
           gradle-version: '8.11.1'
       - name: Extract LocationLab source
         run: tar -xJf LocationLab-source.tar.xz
+      - name: Package current Android sources for review
+        run: zip -q -r LocationLab-source-current.zip LocationLab -x '*/build/*' '*/.gradle/*'
+      - name: Upload sources
+        uses: actions/upload-artifact@v4
+        with:
+          name: LocationLab-source-current
+          path: LocationLab-source-current.zip
+          retention-days: 7
       - name: Build installable debug APK
         working-directory: LocationLab
         run: gradle --no-daemon --stacktrace :app:assembleDebug
