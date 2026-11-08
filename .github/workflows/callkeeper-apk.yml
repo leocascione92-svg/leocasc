@@ -14,7 +14,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Restore source tree
-        run: base64 -d callkeeper-source.tar.xz.base64 | tar -xJ
+        run: |
+          base64 -d callkeeper-source.tar.xz.base64 | tar -xJ
+          base64 -d callkeeper-v0.2.patch.xz.base64 | xz -d | git apply --unsafe-paths
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
@@ -35,6 +37,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: CallKeeper-0.1.0-debug-apk
+          name: CallKeeper-0.2.0-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
