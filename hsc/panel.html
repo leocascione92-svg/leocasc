@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Home Server Connect</title>
+<style>
+*{box-sizing:border-box}body{font:16px/1.5 Segoe UI,Arial,sans-serif;background:#111c2e;color:#f0f5fb;margin:0;padding:24px}
+main{max-width:810px;margin:auto}header{display:flex;align-items:center;gap:15px;margin-bottom:20px}h1{font-size:27px;margin:0}h2{font-size:19px;margin:0 0 10px}
+.sub,small{color:#a3b5ca}article{border:1px solid #34465b;background:#1b2b40;border-radius:14px;padding:20px;margin:15px 0}
+button,.btn{display:inline-block;cursor:pointer;background:#49b8ad;color:#05151e;font:bold 15px Segoe UI,Arial;border:0;border-radius:9px;padding:11px 16px;text-decoration:none;margin:7px 7px 7px 0}
+button:disabled{opacity:.48;cursor:default}.danger{background:#d79c61}.outline{background:#30435b;color:#edf3fa}
+#state{display:inline-block;border:1px solid #64758c;border-radius:30px;padding:4px 14px;color:#d8e7fb}
+code{display:block;word-break:break-all;background:#0d192b;padding:10px;border-radius:6px;color:#a5f9e8;margin:10px 0}
+.note{color:#f0c88d}label{display:block;margin:8px 0}input{width:100%;padding:12px;color:#f5f8fd;background:#132237;border:1px solid #718095;border-radius:8px;font-size:15px}
+#msg{padding:12px;border:1px solid #49617a;border-radius:8px;display:none}
+</style></head><body><main>
+<header><span style="font-size:40px">🔐</span><div><h1>Home Server Connect</h1><div class="sub">0.1.1 sperimentale · Windows 7 / 10 / 11 · USB</div></div></header>
+<article><h2>1 · Accesso Tailscale</h2><div>Stato: <span id="state">Avvio</span></div><p id="statusMessage" class="sub">Preparazione connessione...</p><p id="selfIp"></p>
+<a id="auth" class="btn" rel="noreferrer noopener" target="_blank" style="display:none">Accedi a Tailscale</a>
+<p class="sub">Accedi con lo stesso account già configurato sul Galaxy S21. La sessione è temporanea: chiudendo il programma non vengono conservate le chiavi di accesso sulla chiavetta.</p></article>
+<article><h2>2 · Verifica certificato del Galaxy S21</h2>
+<p>Prima di accedere ai tuoi file verifica l'impronta SHA-256 del certificato HTTPS direttamente sul telefono S21, con una fonte indipendente. Non basta copiare il numero mostrato da questo programma.</p>
+<button id="read" disabled>Leggi certificato S21</button><small>Impronta osservata:</small><code id="observed">Non ancora letta</code>
+<label for="pin">Inserisci l'impronta verificata sul Galaxy S21:</label>
+<input id="pin" placeholder="64 caratteri esadecimali SHA-256" autocomplete="off" spellcheck="false">
+<button id="accept" disabled>Verifica e abilita l'archivio</button>
+<p class="note">Senza confronto indipendente non inserire password o documenti.</p>
+</article>
+<article><h2>3 · Portale NAS</h2><p>Una volta collegato il Galaxy S21, puoi aprire il portale web. Upload, download e trascinamento dipendono dalle funzioni effettivamente disponibili nel server Android.</p>
+<a id="portal" class="btn outline" target="_blank" rel="noopener noreferrer" style="display:none">Apri Home Server S21</a>
+<p class="sub">Il portale locale usa HTTPS con certificato temporaneo autofirmato. Prima di concedere un'eccezione nel browser confronta la sua impronta SHA-256 con quella visualizzata qui:</p>
+<code id="localFp">Non disponibile</code></article>
+<article><h2>4 · Disconnetti</h2>
+<button id="stop" class="danger">Disconnetti e chiudi</button>
+<p class="sub">Chiudi anche le schede del browser al termine. Il browser e Windows possono comunque conservare cronologia o file temporanei.</p></article>
+<div id="msg"></div>
+<p class="note">Windows 7 e Tailscale 1.44.3 non sono più supportati e possono presentare vulnerabilità note. Non utilizzare su PC pubblici, compromessi o senza autorizzazione.</p>
+</main><script>
+(function(){
+"use strict";
+var token="__TOKEN__", btnRead=document.getElementById("read"), btnAccept=document.getElementById("accept"), pinInput=document.getElementById("pin");
+var lastStatus="", verified=false;
+function msg(t){var e=document.getElementById("msg");e.textContent=t;e.style.display="block"}
+function call(path,obj){
+return fetch(path,{method:"POST",headers:{"X-Connect-Token":token,"Content-Type":"application/json"},body:JSON.stringify(obj||{})})
+.then(function(r){if(!r.ok){return r.text().then(function(t){throw new Error(t)})}return r.text().then(function(t){try{return JSON.parse(t)}catch(e){return {}}})})
+}
+function status(){
+fetch("/api/status",{cache:"no-store"}).then(function(r){return r.json()}).then(function(s){
+lastStatus=s.status;document.getElementById("state").textContent=s.status;document.getElementById("statusMessage").textContent=s.message||"";
+document.getElementById("selfIp").textContent=s.ip?"Indirizzo Tailscale di questa sessione: "+s.ip:"";
+document.getElementById("localFp").textContent=s.localFingerprint||"";
+var auth=document.getElementById("auth");auth.style.display=s.authURL?"inline-block":"none";if(s.authURL)auth.href=s.authURL;
+btnRead.disabled=s.status!=="connected";btnAccept.disabled=s.status!=="connected"||!s.observed;
+document.getElementById("observed").textContent=s.observed||"Non ancora letta";
+var portal=document.getElementById("portal");portal.style.display=s.pinned?"inline-block":"none";if(s.pinned)portal.href=s.portal;
+}).catch(function(e){msg("Pannello non raggiungibile: "+e.message)})
+}
+btnRead.onclick=function(){call("/api/cert").then(function(){msg("Certificato letto: confrontalo con quello dell'S21 prima di abilitarlo.");status()}).catch(function(e){msg(e.message)})};
+btnAccept.onclick=function(){call("/api/pin",{Fingerprint:pinInput.value}).then(function(){msg("Impronta corrispondente. Apri il portale.");pinInput.value="";status()}).catch(function(e){msg(e.message)})};
+document.getElementById("stop").onclick=function(){call("/api/stop").then(function(){msg("Disconnessione richiesta. Ora chiudi le schede.")}).catch(function(e){msg(e.message)})};
+status();setInterval(status,1800)
+})();
+</script></body></html>
