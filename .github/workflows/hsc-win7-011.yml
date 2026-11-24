@@ -1,0 +1,64 @@
+name: HomeServerConnect Win7 experimental EXE
+on:
+  push:
+    branches: [build/homeserverconnect-win7-011]
+    paths:
+      - 'hsc/**'
+      - '.github/workflows/hsc-win7-011.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    name: Windows 7 EXE ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, '386']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.20.14'
+          cache: false
+      - name: Download historical Tailscale dependencies
+        working-directory: hsc
+        run: |
+          go version
+          go mod tidy
+          go mod verify
+      - name: Validate Go source
+        working-directory: hsc
+        run: |
+          gofmt -w main.go
+          go test ./...
+      - name: Compile portable EXE
+        working-directory: hsc
+        env:
+          GOOS: windows
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: '0'
+        run: |
+          mkdir -p dist
+          go build -trimpath -ldflags='-s -w' -o "dist/HomeServerConnect-Win7-$GOARCH.exe" .
+          sha256sum dist/*.exe > "dist/SHA256-$GOARCH.txt"
+          cat > dist/LEGGIMI.txt <<'EOF'
+          Home Server Connect 0.1.1 - BUILD SPERIMENTALE
+          Avvia l'EXE da una chiavetta su un Windows 7 SP1 autorizzato.
+          Non installa driver e non configura una unita' di rete.
+          Tailscale 1.44.3 non riceve aggiornamenti di sicurezza.
+          La connessione/login e il funzionamento su Windows 7 non sono ancora collaudati.
+          All'avvio si apre il browser. Verifica l'impronta SHA256 del Galaxy S21
+          direttamente sul telefono, prima di accettare il certificato.
+          Non usare su PC pubblici, compromessi o non autorizzati.
+          EOF
+      - name: Show PE binary metadata
+        run: |
+          file "hsc/dist/HomeServerConnect-Win7-${{ matrix.arch }}.exe"
+          ls -lh hsc/dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HomeServerConnect-011-Win7-${{ matrix.arch }}-EXPERIMENTAL
+          path: hsc/dist/
+          if-no-files-found: error
