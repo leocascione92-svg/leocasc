@@ -1,0 +1,23 @@
+name: HomeServerConnect source archive
+on:
+  push:
+    branches: [build/homeserverconnect-win7-011]
+    paths: ['.github/workflows/hsc-source.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Package complete source tree
+        run: |
+          mkdir -p dist
+          zip -r dist/HomeServerConnect_0.1.1_SOURCES.zip hsc/
+          sha256sum dist/HomeServerConnect_0.1.1_SOURCES.zip > dist/SHA256-SOURCE.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HomeServerConnect-011-SOURCE
+          path: dist/
+          if-no-files-found: error
